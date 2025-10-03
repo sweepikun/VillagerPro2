@@ -1,0 +1,209 @@
+package cn.popcraft.villagerpro.models;
+
+import cn.popcraft.villagerpro.VillagerPro;
+import cn.popcraft.villagerpro.managers.VillagerUpgradeManager;
+import org.bukkit.Bukkit;
+import org.bukkit.Location;
+import org.bukkit.World;
+import org.bukkit.entity.Villager;
+
+import java.util.Map;
+import java.util.UUID;
+
+public class VillagerData {
+    
+    private int id;
+    private int villageId;
+    private UUID entityUUID;
+    private String profession;
+    private int level;
+    private int experience;
+    private String followMode;
+    private Map<String, Integer> skills;
+    
+    /**
+     * 构造函数
+     * @param id 村民ID
+     * @param villageId 村庄ID
+     * @param entityUUID 实体UUID
+     * @param profession 职业
+     * @param level 等级
+     * @param experience 经验值
+     * @param followMode 跟随模式
+     */
+    public VillagerData(int id, int villageId, UUID entityUUID, String profession, int level, int experience, String followMode) {
+        this.id = id;
+        this.villageId = villageId;
+        this.entityUUID = entityUUID;
+        this.profession = profession;
+        this.level = level;
+        this.experience = experience;
+        this.followMode = followMode;
+        this.skills = null; // 延迟加载
+    }
+    
+    // Getters and setters
+    public int getId() {
+        return id;
+    }
+    
+    public void setId(int id) {
+        this.id = id;
+    }
+    
+    public int getVillageId() {
+        return villageId;
+    }
+    
+    public void setVillageId(int villageId) {
+        this.villageId = villageId;
+    }
+    
+    public UUID getEntityUUID() {
+        return entityUUID;
+    }
+    
+    public void setEntityUUID(UUID entityUUID) {
+        this.entityUUID = entityUUID;
+    }
+    
+    public String getProfession() {
+        return profession;
+    }
+    
+    public void setProfession(String profession) {
+        this.profession = profession;
+    }
+    
+    public int getLevel() {
+        return level;
+    }
+    
+    public void setLevel(int level) {
+        this.level = level;
+    }
+    
+    public int getExperience() {
+        return experience;
+    }
+    
+    public void setExperience(int experience) {
+        this.experience = experience;
+    }
+    
+    public String getFollowMode() {
+        return followMode;
+    }
+    
+    public void setFollowMode(String followMode) {
+        this.followMode = followMode;
+    }
+    
+    /**
+     * 获取村民实体
+     * @return 村民实体
+     */
+    public Villager getEntity() {
+        return (Villager) Bukkit.getEntity(entityUUID);
+    }
+    
+    /**
+     * 获取村民位置
+     * @return 村民位置，如果村民不存在则返回null
+     */
+    public Location getLocation() {
+        Villager villager = getEntity();
+        return villager != null ? villager.getLocation() : null;
+    }
+    
+    /**
+     * 获取村民所在世界
+     * @return 村民所在世界，如果村民不存在则返回null
+     */
+    public World getWorld() {
+        Villager villager = getEntity();
+        return villager != null ? villager.getWorld() : null;
+    }
+    
+    /**
+     * 增加经验
+     * @param exp 经验值
+     */
+    public void addExperience(int exp) {
+        this.experience += exp;
+    }
+    
+    /**
+     * 获取工作范围
+     * @return 工作范围
+     */
+    public int getWorkRange() {
+        // 基础工作范围
+        int baseRange = VillagerPro.getInstance().getConfig().getInt("villager.work_range", 5);
+        
+        // 检查是否有广域耕作技能（仅对农民有效）
+        if ("farmer".equals(profession)) {
+            Map<String, Integer> villagerSkills = getSkills();
+            Integer wideRangeLevel = villagerSkills.get("wide_range");
+            if (wideRangeLevel != null) {
+                baseRange += wideRangeLevel * 2; // 每级广域耕作增加2格工作范围
+            }
+        }
+        
+        return baseRange;
+    }
+    
+    /**
+     * 获取基础产出数量
+     * @return 基础产出数量
+     */
+    public int getBaseProductionAmount() {
+        // 基础产出数量
+        int baseAmount = VillagerPro.getInstance().getConfig().getInt("villager.professions." + profession + ".base_amount", 1);
+        
+        // 检查是否有高效收割技能（仅对农民有效）
+        if ("farmer".equals(profession)) {
+            Map<String, Integer> villagerSkills = getSkills();
+            Integer efficientHarvestLevel = villagerSkills.get("efficient_harvest");
+            if (efficientHarvestLevel != null) {
+                baseAmount += efficientHarvestLevel; // 每级高效收割增加1个产出
+            }
+        }
+        
+        return baseAmount;
+    }
+    
+    /**
+     * 实现从数据库获取村民技能升级信息
+     * @return 技能信息映射
+     */
+    public Map<String, Integer> getSkills() {
+        if (skills == null) {
+            skills = VillagerUpgradeManager.getVillagerUpgrades(id);
+        }
+        return skills;
+    }
+    
+    /**
+     * 检查是否升级
+     * @return 是否可以升级
+     */
+    public boolean canUpgrade() {
+        // 村民等级没有硬性上限，但可以检查是否满足升级条件
+        // 这里简化处理，实际可以根据经验系统来判断
+        return true;
+    }
+    
+    @Override
+    public String toString() {
+        return "VillagerData{" +
+                "id=" + id +
+                ", villageId=" + villageId +
+                ", entityUUID=" + entityUUID +
+                ", profession='" + profession + '\'' +
+                ", level=" + level +
+                ", experience=" + experience +
+                ", followMode='" + followMode + '\'' +
+                '}';
+    }
+}

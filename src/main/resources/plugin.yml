@@ -1,0 +1,69 @@
+name: VillagerPro
+version: 2.0.0
+main: cn.popcraft.villagerpro.VillagerPro
+api-version: 1.19
+author: PopCraft
+description: Advanced villager management system
+website: https://popcraft.cn
+depend: [Vault]
+softdepend: [PlayerPoints, ItemsAdder]
+
+libraries:
+  - com.zaxxer:HikariCP:5.0.1
+  - org.xerial:sqlite-jdbc:3.42.0.0
+
+commands:
+  village:
+    description: 管理村庄
+    usage: /<command> [create|info|warehouse]
+    aliases: [vill, vl]
+    permission: villagerpro.village
+  villager:
+    description: 管理村民
+    usage: /<command> [list|recruit|info|remove]
+    aliases: [villagers, vlr]
+    permission: villagerpro.villager
+  upgrade:
+    description: 升级村庄或村民
+    usage: /<command> [village|villager]
+    aliases: [upg, up]
+    permission: villagerpro.upgrade
+
+permissions:
+  villagerpro.*:
+    description: VillagerPro的所有权限
+    default: op
+    children:
+      villagerpro.village.*:
+        description: 村庄相关所有权限
+        children:
+          villagerpro.village.create:
+            description: 创建村庄
+            default: true
+          villagerpro.village.info:
+            description: 查看村庄信息
+            default: true
+          villagerpro.village.warehouse:
+            description: 访问村庄仓库
+            default: true
+          villagerpro.village.upgrade:
+            description: 升级村庄
+            default: true
+      villagerpro.villager.*:
+        description: 村民相关所有权限
+        children:
+          villagerpro.villager.list:
+            description: 查看村民列表
+            default: true
+          villagerpro.villager.recruit:
+            description: 招募村民
+            default: true
+          villagerpro.villager.info:
+            description: 查看村民信息
+            default: true
+          villagerpro.villager.remove:
+            description: 移除村民
+            default: true
+          villagerpro.villager.upgrade:
+            description: 升级村民
+            default: true

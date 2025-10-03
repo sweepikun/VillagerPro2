@@ -1,0 +1,249 @@
+
+
+# ==============================
+# VillagerPro 2.0 配置文件
+# 作者: PopCraft
+# ==============================
+
+# 是否启用调试模式（控制台输出详细日志）
+debug: false
+
+# ==============================
+# 经济系统
+# ==============================
+economy:
+  # 启用 Vault（兼容 EssentialsX、CMI 等）
+  use_vault: true
+  # 启用 PlayerPoints 点券系统
+  use_playerpoints: true
+  # 启用 ItemsAdder 自定义物品支持
+  use_itemsadder: true
+
+# ==============================
+# 村庄系统
+# ==============================
+village:
+  # 村庄最大等级
+  max_level: 5
+
+  # 升级到每一级所需的成本（索引 0 = 1→2，1 = 2→3，...）
+  upgrade_costs:
+    - # 1 → 2
+      costs:
+        - type: "vault"
+          amount: 500
+    - # 2 → 3
+      costs:
+        - type: "vault"
+          amount: 800
+        - type: "itemsadder"
+          item: "villagerpro:village_token"
+          amount: 2
+    - # 3 → 4
+      costs:
+        - type: "playerpoints"
+          amount: 200
+        - type: "itemsadder"
+          item: "villagerpro:golden_seed"
+          amount: 5
+    - # 4 → 5
+      costs:
+        - type: "vault"
+          amount: 2000
+        - type: "playerpoints"
+          amount: 500
+        - type: "itemsadder"
+          item: "villagerpro:ancient_scroll"
+          amount: 1
+
+  # 基础村民数量上限（每级可额外增加，见 upgrade_skills）
+  base_villager_limit: 3
+
+  # 仓库基础容量（格子数）
+  base_warehouse_capacity: 50
+  # 每级额外仓库容量
+  warehouse_capacity_per_level: 25
+
+# ==============================
+# 村庄升级技能树（玩家每次升级可选一项）
+# ==============================
+village_upgrades:
+  # 每次升级提供几个选项（建议 2~4）
+  options_per_level: 3
+
+  # 所有可用的升级项（可自由增减）
+  available_upgrades:
+    - id: farming_boost
+      name: "农业强化"
+      description: "农民产出+20%，收集范围+2格"
+      icon: WHEAT
+      max_level: 3
+      costs:
+        - type: "vault"
+          amount: 300
+
+    - id: fishing_mastery
+      name: "渔业专精"
+      description: "渔夫钓鱼间隔-10%，宝藏概率+5%"
+      icon: COD
+      max_level: 2
+      costs:
+        - type: "vault"
+          amount: 400
+        - type: "itemsadder"
+          item: "villagerpro:fishing_essence"
+          amount: 1
+
+    - id: villager_capacity
+      name: "基建扩张"
+      description: "村民上限+1"
+      icon: OAK_DOOR
+      max_level: 5
+      costs:
+        - type: "vault"
+          amount: 600
+
+    - id: warehouse_expansion
+      name: "仓储扩容"
+      description: "仓库容量+50格"
+      icon: CHEST
+      max_level: 4
+      costs:
+        - type: "playerpoints"
+          amount: 100
+
+    - id: mob_reduction
+      name: "村庄守护"
+      description: "玩家附近怪物生成率-10%"
+      icon: TORCH
+      max_level: 2
+      costs:
+        - type: "itemsadder"
+          item: "villagerpro:ward_stone"
+          amount: 3
+
+# ==============================
+# 村民系统
+# ==============================
+villager:
+  # 招募成本（支持多资源）
+  recruit_cost:
+    - type: "vault"
+      amount: 500
+    - type: "itemsadder"
+      item: "villagerpro:recruit_scroll"
+      amount: 1
+
+  # 工作间隔（ticks，默认 2400 = 2分钟）
+  work_interval_ticks: 2400
+  # 工作半径（方块）
+  work_range: 5
+
+  # 职业配置
+  professions:
+    farmer:
+      name: "农民"
+      icon: WHEAT
+      work_items: [WHEAT, CARROT, POTATO, BEETROOT]
+      base_amount: 3
+      probability: 0.8
+
+    fisherman:
+      name: "渔夫"
+      icon: COD
+      work_items: [COD, SALMON, TROPICAL_FISH, PUFFERFISH]
+      base_amount: 2
+      probability: 0.6
+
+    shepherd:
+      name: "牧羊人"
+      icon: WHITE_WOOL
+      work_items: [WHITE_WOOL, ORANGE_WOOL, MAGENTA_WOOL]
+      base_amount: 1
+      probability: 0.7
+
+    librarian:
+      name: "图书管理员"
+      icon: ENCHANTED_BOOK
+      # 图书管理员不产出物品，但可提供附魔服务（未来扩展）
+
+    priest:
+      name: "祭司"
+      icon: POTION
+      work_items: [AWKWARD_POTION, THICK_POTION]
+      base_amount: 1
+      probability: 0.5
+
+    cartographer:
+      name: "制图师"
+      icon: MAP
+      work_items: [MAP]
+      base_amount: 1
+      probability: 0.4
+      # 每日最多产出1张地图（需额外逻辑限制）
+
+# ==============================
+# 村民技能树（按职业）
+# ==============================
+villager_upgrades:
+  farmer:
+    - id: efficient_harvest
+      name: "高效收割"
+      description: "每次多收1个作物"
+      icon: GOLDEN_HOE
+      max_level: 5
+      cost_multiplier: 1.5  # 每级成本 = 基础 × (1.5 ^ (level-1))
+
+    - id: wide_range
+      name: "广域耕作"
+      description: "工作范围+2格"
+      icon: MAP
+      max_level: 2
+      costs:
+        - type: "vault"
+          amount: 400
+
+  fisherman:
+    - id: fast_fishing
+      name: "快速垂钓"
+      description: "钓鱼间隔-20%"
+      icon: FISHING_ROD
+      max_level: 3
+      cost_multiplier: 1.6
+
+    - id: treasure_hunter
+      name: "寻宝专家"
+      description: "获得宝藏概率+10%"
+      icon: HEART_OF_THE_SEA
+      max_level: 2
+      costs:
+        - type: "itemsadder"
+          item: "villagerpro:treasure_map"
+          amount: 2
+
+# ==============================
+# GUI 配置
+# ==============================
+gui:
+  # GUI 标题前缀（用于事件识别）
+  title_prefix: "§f[VP] "
+
+  # 通用按钮
+  close_button:
+    material: BARRIER
+    name: "§c关闭"
+  confirm_button:
+    material: GREEN_CONCRETE
+    name: "§a确认"
+  back_button:
+    material: RED_CONCRETE
+    name: "§c返回"
+
+# ==============================
+# 兼容性设置
+# ==============================
+compatibility:
+  # 是否在村民死亡时自动移除绑定（避免僵尸村民残留）
+  auto_cleanup_dead_villagers: true
+  # 是否允许村民在非主世界工作（如生存世界）
+  allow_work_in_all_worlds: false

@@ -1,0 +1,106 @@
+# ==============================
+# VillagerPro 2.0 Messages File
+# 多语言消息配置文件
+# ==============================
+
+# 通用消息
+common:
+  prefix: "&f[&aVP&f] "
+  no_permission: "&c你没有权限执行此命令"
+  player_only: "&c只有玩家可以执行此命令"
+  no_village: "&c你还没有创建村庄！"
+  unknown_command: "&c未知命令"
+
+# 村庄相关消息
+village:
+  created: "&a成功创建村庄: {name}"
+  create_failed: "&c创建村庄失败"
+  already_exists: "&c你已经有一个村庄了！"
+  info_title: "村庄信息"
+  level: "&7等级: &e{level}"
+  prosperity: "&7繁荣度: &e{prosperity}"
+  villagers: "&7村民: &e{current}/{limit}"
+  warehouse: "&7仓库: &e{current}/{capacity}"
+  max_level: "&c村庄已达到最高等级！"
+
+# 村民相关消息
+villager:
+  recruited: "&a成功招募了一名{profession}！"
+  recruit_failed: "&c招募村民失败"
+  recruit_limit: "&c村庄村民数量已达上限！"
+  not_found: "&c找不到该村民！"
+  removed: "&a成功移除村民"
+  remove_failed: "&c移除村民失败"
+  follow_mode:
+    free: "自由"
+    follow: "跟随"
+    stay: "停留"
+  follow_mode_changed: "&a已切换村民的跟随模式为: {mode}"
+  info_title: "村民详情"
+  upgrade_title: "村民升级"
+  profession: "&7职业: &e{profession}"
+  experience: "&7经验: &e{experience}"
+  follow_mode_display: "&7跟随模式: &e{mode}"
+  work_range: "&7工作范围: &e{range}格"
+  base_production: "&7基础产出: &e{amount}个"
+
+# 仓库相关消息
+warehouse:
+  title: "村庄仓库"
+  item_info: "&7数量: &e{amount}"
+  extract_all: "&a成功提取了 {amount} 个 {item}"
+  extract_failed: "&c仓库中没有足够的 {item}！"
+  inventory_full: "&c背包空间不足！"
+  extract_error: "&c提取物品时发生错误！"
+
+# 招募相关消息
+recruit:
+  title: "招募村民"
+  cost: "&6招募成本:"
+  no_villagers_nearby: "&c附近没有可招募的村民！"
+  cost_item: "&e{amount}个 {item}"
+  cost_vault: "&e{amount}金币"
+  cost_playerpoints: "&e{amount}点券"
+
+# 升级相关消息
+upgrade:
+  village_title: "村庄升级"
+  village_cost: "&6升级成本:"
+  village_upgraded: "&a成功升级了{upgrade}！"
+  upgrade_failed: "&c升级失败！"
+  cannot_afford: "&c你没有足够的资源来进行这项升级！"
+  payment_error: "&c支付升级费用时发生错误！"
+  option: "&7{description}"
+  level_info: "&7等级: &e{current}/{max}"
+  cost_item: "&e{amount}个 {item}"
+  cost_vault: "&e{amount}金币"
+  cost_playerpoints: "&e{amount}点券"
+
+# GUI相关消息
+gui:
+  close: "&c关闭"
+  back: "&c返回"
+  confirm: "&a确认"
+  left_click: "&e左键&7查看详情"
+  right_click: "&e右键&7升级"
+  left_extract_all: "&e左键&7提取全部"
+  right_extract_stack: "&e右键&7提取一组"
+
+# 经济系统消息
+economy:
+  vault_not_found: "&c未找到Vault经济系统"
+  playerpoints_not_found: "&c未找到PlayerPoints点券系统"
+  itemsadder_not_found: "&c未找到ItemsAdder插件"
+  insufficient_funds: "&c你没有足够的金币！"
+  insufficient_points: "&c你没有足够的点券！"
+  insufficient_items: "&c你没有足够的 {item}！"
+  payment_success: "&a成功支付 {amount}金币"
+  payment_points_success: "&a成功支付 {amount}点券"
+  payment_items_success: "&a成功支付 {amount}个 {item}"
+
+# 错误消息
+error:
+  invalid_id: "&c无效的村民ID"
+  invalid_amount: "&c无效的数量"
+  database_error: "&c数据库操作失败"
+  config_error: "&c配置文件读取错误"

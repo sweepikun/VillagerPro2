@@ -1,0 +1,61 @@
+plugins {
+    id 'java'
+}
+
+group = 'cn.popcraft'
+version = '2.0.0'
+
+java {
+    toolchain {
+        languageVersion = JavaLanguageVersion.of(17)
+    }
+}
+
+repositories {
+    mavenCentral()
+    maven {
+        name = 'spigotmc-repo'
+        url = 'https://hub.spigotmc.org/nexus/content/repositories/snapshots/'
+    }
+    maven {
+        name = 'jitpack'
+        url = 'https://jitpack.io'
+    }
+    maven {
+        name = 'codemc-repo'
+        url = 'https://repo.codemc.io/repository/maven/'
+    }
+    maven {
+        name = 'itemsadder'
+        url = 'https://maven.devs.beer/'
+    }
+    maven { 
+        url = 'https://repo.rosewooddev.io/repository/public/' 
+    }
+}
+
+dependencies {
+    compileOnly 'org.spigotmc:spigot-api:1.19.4-R0.1-SNAPSHOT'
+    compileOnly 'com.github.MilkBowl:VaultAPI:1.7'
+    compileOnly 'org.black_ixx:playerpoints:3.2.6'
+    compileOnly 'com.github.LoneDev6:API-ItemsAdder:3.6.1'
+    
+    // 将HikariCP改为compileOnly，因为将在plugin.yml中声明
+    compileOnly 'com.zaxxer:HikariCP:5.0.1'
+    
+    // 添加SQLite JDBC驱动
+    compileOnly 'org.xerial:sqlite-jdbc:3.42.0.0'
+}
+
+processResources {
+    def props = [version: project.version]
+    inputs.properties props
+    filteringCharset 'UTF-8'
+    filesMatching('plugin.yml') {
+        expand props
+    }
+}
+
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}
