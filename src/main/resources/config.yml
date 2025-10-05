@@ -1,5 +1,3 @@
-
-
 # ==============================
 # VillagerPro 2.0 配置文件
 # 作者: PopCraft
@@ -73,7 +71,7 @@ village_upgrades:
 
   # 所有可用的升级项（可自由增减）
   available_upgrades:
-    - id: farming_boost
+    farming_boost:
       name: "农业强化"
       description: "农民产出+20%，收集范围+2格"
       icon: WHEAT
@@ -82,7 +80,7 @@ village_upgrades:
         - type: "vault"
           amount: 300
 
-    - id: fishing_mastery
+    fishing_mastery:
       name: "渔业专精"
       description: "渔夫钓鱼间隔-10%，宝藏概率+5%"
       icon: COD
@@ -94,7 +92,7 @@ village_upgrades:
           item: "villagerpro:fishing_essence"
           amount: 1
 
-    - id: villager_capacity
+    villager_capacity:
       name: "基建扩张"
       description: "村民上限+1"
       icon: OAK_DOOR
@@ -103,7 +101,7 @@ village_upgrades:
         - type: "vault"
           amount: 600
 
-    - id: warehouse_expansion
+    warehouse_expansion:
       name: "仓储扩容"
       description: "仓库容量+50格"
       icon: CHEST
@@ -112,7 +110,7 @@ village_upgrades:
         - type: "playerpoints"
           amount: 100
 
-    - id: mob_reduction
+    mob_reduction:
       name: "村庄守护"
       description: "玩家附近怪物生成率-10%"
       icon: TORCH

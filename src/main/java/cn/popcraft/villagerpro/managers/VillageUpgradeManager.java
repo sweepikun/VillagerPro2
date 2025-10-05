@@ -4,6 +4,8 @@ import cn.popcraft.villagerpro.database.DatabaseManager;
 import cn.popcraft.villagerpro.economy.CostEntry;
 import cn.popcraft.villagerpro.economy.CostHandler;
 import cn.popcraft.villagerpro.models.Village;
+import org.bukkit.configuration.ConfigurationSection;
+import org.bukkit.configuration.file.FileConfiguration;
 import org.bukkit.entity.Player;
 
 import java.sql.Connection;
@@ -109,18 +111,21 @@ public class VillageUpgradeManager {
         List<String> availableUpgrades = new ArrayList<>();
         
         // 从配置中获取所有可用的升级
-        if (cn.popcraft.villagerpro.VillagerPro.getInstance().getConfig().contains("village_upgrades.available_upgrades")) {
-            for (String key : cn.popcraft.villagerpro.VillagerPro.getInstance().getConfig()
-                    .getConfigurationSection("village_upgrades.available_upgrades").getKeys(false)) {
-                availableUpgrades.add(key);
+        FileConfiguration config = cn.popcraft.villagerpro.VillagerPro.getInstance().getConfig();
+        String path = "village_upgrades.available_upgrades";
+        if (config.contains(path)) {
+            ConfigurationSection section = config.getConfigurationSection(path);
+            if (section != null) {
+                for (String key : section.getKeys(false)) {
+                    availableUpgrades.add(key);
+                }
             }
         }
         
         // 移除已达最高等级的升级
         availableUpgrades.removeIf(upgradeId -> {
             int currentLevel = getVillageUpgradeLevel(village.getId(), upgradeId);
-            int maxLevel = cn.popcraft.villagerpro.VillagerPro.getInstance().getConfig()
-                    .getInt("village_upgrades.available_upgrades." + upgradeId + ".max_level", 1);
+            int maxLevel = config.getInt("village_upgrades.available_upgrades." + upgradeId + ".max_level", 1);
             return currentLevel >= maxLevel;
         });
         
