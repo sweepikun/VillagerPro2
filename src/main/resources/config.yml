@@ -24,6 +24,9 @@ village:
   # 村庄最大等级
   max_level: 5
 
+  # 村庄升级所需基础经验（每级需要的经验 = 当前等级 * base_exp_per_level）
+  base_exp_per_level: 200
+
   # 升级到每一级所需的成本（索引 0 = 1→2，1 = 2→3，...）
   upgrade_costs:
     - # 1 → 2
@@ -124,6 +127,9 @@ village_upgrades:
 # 村民系统
 # ==============================
 villager:
+  # 村民升级所需基础经验（每级需要的经验 = 当前等级 * base_exp_per_level）
+  base_exp_per_level: 100
+
   # 招募成本（支持多资源）
   recruit_cost:
     - type: "vault"

@@ -190,8 +190,16 @@ public class VillagerData {
      */
     public boolean canUpgrade() {
         // 村民等级没有硬性上限，但可以检查是否满足升级条件
-        // 这里简化处理，实际可以根据经验系统来判断
-        return true;
+        // 根据经验系统来判断是否可以升级
+        int currentLevel = this.getLevel();
+        
+        // 获取基础经验需求（默认为100）
+        int baseExp = cn.popcraft.villagerpro.VillagerPro.getInstance().getConfig()
+                .getInt("villager.base_exp_per_level", 100);
+        // 计算当前等级升级所需经验（线性增长）
+        int expNeeded = currentLevel * baseExp;
+        
+        return this.getExperience() >= expNeeded;
     }
     
     @Override

@@ -1,12 +1,13 @@
 package cn.popcraft.villagerpro.economy;
 
 import cn.popcraft.villagerpro.VillagerPro;
-import cn.popcraft.villagerpro.util.Messages;
 import net.milkbowl.vault.economy.Economy;
+import net.milkbowl.vault.economy.EconomyResponse;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.ItemStack;
 
+import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -38,8 +39,15 @@ public class CostHandler {
             case "vault":
                 return hasVaultBalance(player, cost.getAmount());
             case "playerpoints":
+                 if (Bukkit.getPluginManager().getPlugin("PlayerPoints") == null) {
+                     return true; // 如果PlayerPoints不可用，则忽略此成本
+                 }
                 return hasPlayerPoints(player, (int) cost.getAmount());
             case "itemsadder":
+                // 如果ItemsAdder不可用，则忽略此成本
+                if (Bukkit.getPluginManager().getPlugin("ItemsAdder") == null) {
+                    return true;
+                }
                 return hasItemsAdderItem(player, cost.getItem(), (int) cost.getAmount());
             default:
                 return false;
@@ -83,6 +91,10 @@ public class CostHandler {
             case "playerpoints":
                 return withdrawPlayerPoints(player, (int) cost.getAmount());
             case "itemsadder":
+                // 如果ItemsAdder不可用，则忽略此成本
+                if (Bukkit.getPluginManager().getPlugin("ItemsAdder") == null) {
+                    return true;
+                }
                 return removeItemsAdderItem(player, cost.getItem(), (int) cost.getAmount());
             default:
                 return false;
@@ -138,66 +150,49 @@ public class CostHandler {
     }
     
     // 添加ItemsAdder物品支持
-    private static boolean hasItemsAdderItem(Player player, String itemId, int amount) {
+    private static boolean hasItemsAdderItem(Player player, String itemNamespace, int amount) {
+        // 检查ItemsAdder是否可用
+        if (Bukkit.getPluginManager().getPlugin("ItemsAdder") == null) {
+            return true; // 如果ItemsAdder不可用，则忽略此成本
+        }
+
+        // 使用ItemsAdder API检查物品数量
         try {
-            // 检查ItemsAdder是否可用
-            if (Bukkit.getPluginManager().getPlugin("ItemsAdder") == null) {
-                return false;
-            }
-            
-            // 使用ItemsAdder API检查物品数量
-            ItemStack[] contents = player.getInventory().getContents();
-            int count = 0;
-            
-            for (ItemStack item : contents) {
-                if (item != null && item.hasItemMeta()) {
-                    // 这里简化处理，实际应该使用ItemsAdder API来检查自定义物品
-                    // 由于ItemsAdder是闭源插件，我们只能通过名称匹配
-                    if (item.getType().toString().equals(itemId)) {
-                        count += item.getAmount();
-                    }
-                }
-            }
-            
-            return count >= amount;
+            Class<?> itemsAdderAPI = Class.forName("dev.lone.itemsadder.api.ItemsAdderAPI");
+            Method method = itemsAdderAPI.getMethod("getItemAmount", Player.class, String.class);
+            int playerAmount = (int) method.invoke(null, player, itemNamespace);
+            return playerAmount >= amount;
+        } catch (ClassNotFoundException e) {
+            VillagerPro.getInstance().getLogger().severe("未找到 ItemsAdder API 类: " + e.getMessage());
+            return false;
+        } catch (NoSuchMethodException e) {
+            VillagerPro.getInstance().getLogger().severe("ItemsAdder API 中未找到 getItemAmount 方法: " + e.getMessage());
+            return false;
         } catch (Exception e) {
-            e.printStackTrace();
+            VillagerPro.getInstance().getLogger().severe("调用 ItemsAdder API 时发生错误: " + e.getMessage());
             return false;
         }
     }
     
-    private static boolean removeItemsAdderItem(Player player, String itemId, int amount) {
+    private static boolean removeItemsAdderItem(Player player, String itemNamespace, int amount) {
+        // 检查ItemsAdder是否可用
+        if (Bukkit.getPluginManager().getPlugin("ItemsAdder") == null) {
+            return true; // 如果ItemsAdder不可用，则忽略此成本
+        }
+        
+        // 使用ItemsAdder API移除物品
         try {
-            // 检查ItemsAdder是否可用
-            if (Bukkit.getPluginManager().getPlugin("ItemsAdder") == null) {
-                return false;
-            }
-            
-            // 使用ItemsAdder API移除物品
-            // 这里简化处理，实际应该使用ItemsAdder API来移除自定义物品
-            // 由于ItemsAdder是闭源插件，我们只能通过名称匹配
-            ItemStack[] contents = player.getInventory().getContents();
-            int remaining = amount;
-            
-            for (int i = 0; i < contents.length && remaining > 0; i++) {
-                ItemStack item = contents[i];
-                if (item != null && item.hasItemMeta()) {
-                    if (item.getType().toString().equals(itemId)) {
-                        int itemAmount = item.getAmount();
-                        if (itemAmount <= remaining) {
-                            player.getInventory().setItem(i, null);
-                            remaining -= itemAmount;
-                        } else {
-                            item.setAmount(itemAmount - remaining);
-                            remaining = 0;
-                        }
-                    }
-                }
-            }
-            
-            return remaining == 0;
+            Class<?> itemsAdderAPI = Class.forName("dev.lone.itemsadder.api.ItemsAdderAPI");
+            Method method = itemsAdderAPI.getMethod("takeItem", Player.class, String.class, int.class);
+            return (boolean) method.invoke(null, player, itemNamespace, amount);
+        } catch (ClassNotFoundException e) {
+            VillagerPro.getInstance().getLogger().severe("未找到 ItemsAdder API 类: " + e.getMessage());
+            return false;
+        } catch (NoSuchMethodException e) {
+            VillagerPro.getInstance().getLogger().severe("ItemsAdder API 中未找到 takeItem 方法: " + e.getMessage());
+            return false;
         } catch (Exception e) {
-            e.printStackTrace();
+            VillagerPro.getInstance().getLogger().severe("调用 ItemsAdder API 时发生错误: " + e.getMessage());
             return false;
         }
     }

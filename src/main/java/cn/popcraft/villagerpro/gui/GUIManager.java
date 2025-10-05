@@ -513,7 +513,7 @@ public class GUIManager {
     }
     
     /**
-     * 打开村庄升级选择界面
+     * 打开村庄升级界面
      * @param player 玩家
      */
     public static void openVillageUpgradeGUI(Player player) {
@@ -532,14 +532,20 @@ public class GUIManager {
         
         Inventory gui = Bukkit.createInventory(null, 27, GUI_PREFIX + "村庄升级");
         
-        // 获取随机升级选项
-        int optionsPerLevel = VillagerPro.getInstance().getConfig().getInt("village_upgrades.options_per_level", 3);
-        List<String> upgradeOptions = VillageUpgradeManager.getRandomUpgradeOptions(village, optionsPerLevel);
+        // 获取所有升级选项（不仅仅是未达最高等级的）
+        List<String> allUpgradeOptions = new java.util.ArrayList<>();
+        if (VillagerPro.getInstance().getConfig().contains("village_upgrades.available_upgrades")) {
+            org.bukkit.configuration.ConfigurationSection section = VillagerPro.getInstance().getConfig()
+                    .getConfigurationSection("village_upgrades.available_upgrades");
+            if (section != null) {
+                allUpgradeOptions.addAll(section.getKeys(false));
+            }
+        }
         
         // 显示升级选项
-        int slot = 10; // 起始槽位
-        for (String upgradeId : upgradeOptions) {
-            if (slot > 16) break; // 最多显示7个选项
+        int slot = 10; // 起始槽位（第11格）
+        for (String upgradeId : allUpgradeOptions) {
+            if (slot > 16) break; // 最多显示7个选项（第11-17格）
             
             Material iconMaterial = Material.getMaterial(VillageUpgradeManager.getUpgradeIcon(upgradeId));
             if (iconMaterial == null) {
@@ -557,6 +563,11 @@ public class GUIManager {
             int maxLevelUpgrade = VillageUpgradeManager.getUpgradeMaxLevel(upgradeId);
             lore.add("§7等级: §e" + currentLevel + "/" + maxLevelUpgrade);
             
+            // 如果已达最高等级，添加特殊标识
+            if (currentLevel >= maxLevelUpgrade) {
+                lore.add("§c§l[已满级]");
+            }
+            
             // 显示成本
             lore.add("");
             lore.add("§6升级成本:");
@@ -569,7 +580,6 @@ public class GUIManager {
             gui.setItem(slot, upgradeItem);
             
             slot++;
-            if (slot % 9 == 8) slot += 2; // 跳过下一行的边缘
         }
         
         // 返回按钮

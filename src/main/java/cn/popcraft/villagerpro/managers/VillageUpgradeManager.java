@@ -108,32 +108,30 @@ public class VillageUpgradeManager {
      * @return 升级选项列表
      */
     public static List<String> getRandomUpgradeOptions(Village village, int count) {
+        List<String> allUpgrades = new ArrayList<>();
         List<String> availableUpgrades = new ArrayList<>();
         
-        // 从配置中获取所有可用的升级
         FileConfiguration config = cn.popcraft.villagerpro.VillagerPro.getInstance().getConfig();
-        String path = "village_upgrades.available_upgrades";
-        if (config.contains(path)) {
-            ConfigurationSection section = config.getConfigurationSection(path);
-            if (section != null) {
-                for (String key : section.getKeys(false)) {
-                    availableUpgrades.add(key);
-                }
-            }
+        ConfigurationSection section = config.getConfigurationSection("village_upgrades.available_upgrades");
+        if (section != null) {
+            allUpgrades.addAll(section.getKeys(false));
         }
         
-        // 移除已达最高等级的升级
-        availableUpgrades.removeIf(upgradeId -> {
+        // 筛选出未达最高等级的升级
+        for (String upgradeId : allUpgrades) {
             int currentLevel = getVillageUpgradeLevel(village.getId(), upgradeId);
-            int maxLevel = config.getInt("village_upgrades.available_upgrades." + upgradeId + ".max_level", 1);
-            return currentLevel >= maxLevel;
-        });
+            int maxLevel = getUpgradeMaxLevel(upgradeId);
+            if (currentLevel < maxLevel) {
+                availableUpgrades.add(upgradeId);
+            }
+        }
         
         // 随机选择指定数量的升级
         List<String> options = new ArrayList<>();
         Random random = new Random();
+        int selectCount = Math.min(count, availableUpgrades.size());
         
-        while (options.size() < count && !availableUpgrades.isEmpty()) {
+        while (options.size() < selectCount && !availableUpgrades.isEmpty()) {
             int index = random.nextInt(availableUpgrades.size());
             options.add(availableUpgrades.remove(index));
         }

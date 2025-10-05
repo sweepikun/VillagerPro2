@@ -159,7 +159,7 @@ public class VillagerManager {
                 ResultSet generatedKeys = statement.getGeneratedKeys();
                 if (generatedKeys.next()) {
                     int id = generatedKeys.getInt(1);
-                    player.sendMessage("§a成功招募了一名" + getProfessionDisplayName(profession) + "！");
+                    // 不在这里发送消息，让调用者处理
                     return new VillagerData(id, village.getId(), entityUUID, profession, 1, 0, "FREE");
                 }
             }
@@ -167,7 +167,7 @@ public class VillagerManager {
             e.printStackTrace();
         }
         
-        player.sendMessage("§c招募村民失败！");
+        // 不在这里发送消息，让调用者处理
         return null;
     }
     

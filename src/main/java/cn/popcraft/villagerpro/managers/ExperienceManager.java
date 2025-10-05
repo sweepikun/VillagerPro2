@@ -42,9 +42,13 @@ public class ExperienceManager {
      * @param villager 村民
      */
     private static void checkVillagerLevelUp(VillagerData villager) {
-        // 简化的升级逻辑，实际应该根据配置来确定升级所需经验
+        // 根据配置来确定升级所需经验
         int currentLevel = villager.getLevel();
-        int expNeeded = currentLevel * 100; // 每级需要的经验值递增
+        
+        // 获取基础经验需求（默认为100）
+        int baseExp = VillagerPro.getInstance().getConfig().getInt("villager.base_exp_per_level", 100);
+        // 计算当前等级升级所需经验（线性增长）
+        int expNeeded = currentLevel * baseExp;
         
         if (villager.getExperience() >= expNeeded) {
             villager.setLevel(currentLevel + 1);
@@ -61,7 +65,6 @@ public class ExperienceManager {
      * @param village 村庄
      */
     private static void checkVillageLevelUp(Village village) {
-        // 简化的升级逻辑，实际应该根据配置来确定升级所需经验
         int currentLevel = village.getLevel();
         int maxLevel = VillagerPro.getInstance().getConfig().getInt("village.max_level", 5);
         
@@ -69,7 +72,11 @@ public class ExperienceManager {
             return; // 已达到最高等级
         }
         
-        int expNeeded = currentLevel * 200; // 每级需要的经验值递增
+        // 根据配置来确定升级所需经验
+        // 获取基础经验需求（默认为200）
+        int baseExp = VillagerPro.getInstance().getConfig().getInt("village.base_exp_per_level", 200);
+        // 计算当前等级升级所需经验（线性增长）
+        int expNeeded = currentLevel * baseExp;
         
         if (village.getExperience() >= expNeeded) {
             village.setLevel(currentLevel + 1);

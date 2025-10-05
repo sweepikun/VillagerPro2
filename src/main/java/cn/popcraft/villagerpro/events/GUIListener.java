@@ -25,6 +25,7 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
 import java.util.List;
+import org.bukkit.entity.Ageable;
 import java.util.UUID;
 
 public class GUIListener implements Listener {
@@ -389,6 +390,14 @@ public class GUIListener implements Listener {
         
         targetVillager.setProfession(villagerProfession);
         
+        // 确保村民是成年人
+        if (targetVillager instanceof Ageable) {
+            Ageable ageable = (Ageable) targetVillager;
+            if (!ageable.isAdult()) {
+                ageable.setAge(0); // 设置为成年人
+            }
+        }
+        
         // 设置村民自定义名称以标识已被招募
         String professionName = VillagerManager.getProfessionDisplayName(profession);
         targetVillager.setCustomName("§a" + professionName + " §7(ID: " + targetVillager.getEntityId() + ")");
@@ -398,6 +407,11 @@ public class GUIListener implements Listener {
         VillagerData villagerData = VillagerManager.recruitVillager(player, village, targetVillager.getUniqueId(), profession);
         if (villagerData != null) {
             player.sendMessage("§a成功招募了一名" + professionName + "！");
+            
+            // 延迟打开村民列表GUI，确保数据库操作完成
+            Bukkit.getScheduler().runTaskLater(VillagerPro.getInstance(), () -> {
+                GUIManager.openVillageGUI(player);
+            }, 1L);
         } else {
             player.sendMessage("§c招募村民失败！");
         }
