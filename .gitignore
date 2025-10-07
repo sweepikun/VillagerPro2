@@ -1,0 +1,8 @@
+/.gradle
+/bin
+/build
+/gradle
+/gradlew
+/prompt
+*.log
+*.mdmp
