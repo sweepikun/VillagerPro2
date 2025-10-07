@@ -15,12 +15,12 @@ libraries:
 commands:
   village:
     description: 管理村庄
-    usage: /<command> [create|info|warehouse]
+    usage: /<command> [create|info|warehouse|upgrade|reload]
     aliases: [vill, vl]
     permission: villagerpro.village
   villager:
     description: 管理村民
-    usage: /<command> [list|recruit|info|remove]
+    usage: /<command> [list|recruit|info|remove|upgrade]
     aliases: [villagers, vlr]
     permission: villagerpro.villager
   upgrade:
@@ -49,6 +49,9 @@ permissions:
           villagerpro.village.upgrade:
             description: 升级村庄
             default: true
+          villagerpro.village.reload:
+            description: 重载配置文件
+            default: op
       villagerpro.villager.*:
         description: 村民相关所有权限
         children:
