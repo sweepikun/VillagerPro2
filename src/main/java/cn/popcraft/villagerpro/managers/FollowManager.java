@@ -34,9 +34,11 @@ public class FollowManager {
                 break;
             case "STAY":
                 newMode = "FREE";
+                startFollowing(villagerData);
                 break;
             default:
                 newMode = "FREE";
+                startFollowing(villagerData);
                 break;
         }
         
@@ -62,6 +64,11 @@ public class FollowManager {
         
         // 创建新的跟随任务
         BukkitTask task = Bukkit.getScheduler().runTaskTimer(VillagerPro.getInstance(), () -> {
+            // 确保在主线程中执行
+            if (!Bukkit.isPrimaryThread()) {
+                return;
+            }
+            
             Villager villager = villagerData.getEntity();
             if (villager == null || villager.isDead()) {
                 stopFollowing(villagerData);

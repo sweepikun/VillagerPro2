@@ -31,13 +31,19 @@ public class WorkScheduler {
             public void run() {
                 performWork();
             }
-        }.runTaskTimerAsynchronously(VillagerPro.getInstance(), 0L, interval);
+        }.runTaskTimer(VillagerPro.getInstance(), 0L, interval); // 改为同步执行
     }
     
     /**
      * 执行工作
      */
     private static void performWork() {
+        // 确保在主线程中执行
+        if (!Bukkit.isPrimaryThread()) {
+            Bukkit.getScheduler().runTask(VillagerPro.getInstance(), () -> performWork());
+            return;
+        }
+        
         for (Player player : Bukkit.getOnlinePlayers()) {
             Village village = VillageManager.getVillage(player.getUniqueId());
             if (village == null) continue;
@@ -45,6 +51,7 @@ public class WorkScheduler {
             List<VillagerData> villagers = VillagerManager.getVillagers(village.getId());
             for (VillagerData villager : villagers) {
                 // 检查村民是否在线且在玩家附近
+                // 使用异步安全的方法检查
                 if (villager.getEntity() != null && 
                     player.getWorld().equals(villager.getEntity().getWorld()) &&
                     player.getLocation().distance(villager.getEntity().getLocation()) <= 32) {

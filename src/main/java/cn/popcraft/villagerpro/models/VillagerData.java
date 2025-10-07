@@ -104,7 +104,28 @@ public class VillagerData {
      * @return 村民实体
      */
     public Villager getEntity() {
-        return (Villager) Bukkit.getEntity(entityUUID);
+        // 如果在主线程中直接获取实体
+        if (Bukkit.isPrimaryThread()) {
+            return (Villager) Bukkit.getEntity(entityUUID);
+        } else {
+            // 如果在异步线程中，通过调度器在主线程中获取实体
+            // 这里我们返回null，让调用者处理异步情况
+            return null;
+        }
+    }
+    
+    /**
+     * 异步安全的方式获取村民实体
+     * @param callback 回调函数，参数为村民实体（可能为null）
+     */
+    public void getEntityAsync(java.util.function.Consumer<Villager> callback) {
+        if (Bukkit.isPrimaryThread()) {
+            callback.accept((Villager) Bukkit.getEntity(entityUUID));
+        } else {
+            Bukkit.getScheduler().runTask(VillagerPro.getInstance(), () -> {
+                callback.accept((Villager) Bukkit.getEntity(entityUUID));
+            });
+        }
     }
     
     /**
@@ -112,8 +133,14 @@ public class VillagerData {
      * @return 村民位置，如果村民不存在则返回null
      */
     public Location getLocation() {
-        Villager villager = getEntity();
-        return villager != null ? villager.getLocation() : null;
+        // 由于可能在异步线程中调用，需要特殊处理
+        if (Bukkit.isPrimaryThread()) {
+            Villager villager = getEntity();
+            return villager != null ? villager.getLocation() : null;
+        } else {
+            // 异步情况下返回null，让调用者处理
+            return null;
+        }
     }
     
     /**
@@ -121,8 +148,14 @@ public class VillagerData {
      * @return 村民所在世界，如果村民不存在则返回null
      */
     public World getWorld() {
-        Villager villager = getEntity();
-        return villager != null ? villager.getWorld() : null;
+        // 由于可能在异步线程中调用，需要特殊处理
+        if (Bukkit.isPrimaryThread()) {
+            Villager villager = getEntity();
+            return villager != null ? villager.getWorld() : null;
+        } else {
+            // 异步情况下返回null，让调用者处理
+            return null;
+        }
     }
     
     /**
