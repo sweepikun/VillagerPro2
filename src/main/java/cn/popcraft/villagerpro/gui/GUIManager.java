@@ -6,6 +6,7 @@ import cn.popcraft.villagerpro.managers.VillageUpgradeManager;
 import cn.popcraft.villagerpro.managers.VillagerManager;
 import cn.popcraft.villagerpro.managers.VillagerUpgradeManager;
 import cn.popcraft.villagerpro.managers.WarehouseManager;
+import cn.popcraft.villagerpro.scheduler.WorkScheduler;
 import cn.popcraft.villagerpro.models.Village;
 import cn.popcraft.villagerpro.models.VillagerData;
 import org.bukkit.Bukkit;
@@ -140,6 +141,14 @@ public class GUIManager {
             lore.add("§7等级: §e" + villager.getLevel());
             lore.add("§7经验: §e" + villager.getExperience());
             lore.add("§7跟随模式: §e" + villager.getFollowMode());
+            
+            // 添加产出倒计时
+            long remainingTime = WorkScheduler.getRemainingWorkTime(villager.getId());
+            if (remainingTime <= 0) {
+                lore.add("§a下次产出: 准备就绪!");
+            } else {
+                lore.add("§6下次产出: §e" + formatTime(remainingTime));
+            }
             lore.add("");
             lore.add("§e左键§7查看详情");
             lore.add("§e右键§7升级");
@@ -662,6 +671,29 @@ public class GUIManager {
             cn.popcraft.villagerpro.managers.VillageUpgradeManager.getUpgradeCosts(upgradeId);
         lore.addAll(cn.popcraft.villagerpro.economy.CostHandler.getDisplayLore(costs));
         return lore;
+    }
+    
+    /**
+     * 格式化时间显示
+     * @param millis 毫秒数
+     * @return 格式化的时间字符串
+     */
+    private static String formatTime(long millis) {
+        if (millis <= 0) {
+            return "准备就绪";
+        }
+        
+        long seconds = millis / 1000;
+        long minutes = seconds / 60;
+        long hours = minutes / 60;
+        
+        if (hours > 0) {
+            return String.format("%d时%d分%d秒", hours, minutes % 60, seconds % 60);
+        } else if (minutes > 0) {
+            return String.format("%d分%d秒", minutes, seconds % 60);
+        } else {
+            return String.format("%d秒", seconds);
+        }
     }
     
     /**

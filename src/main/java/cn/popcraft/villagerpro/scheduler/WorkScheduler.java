@@ -16,9 +16,14 @@ import org.bukkit.scheduler.BukkitTask;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.ThreadLocalRandom;
+import java.util.HashMap;
+import java.util.Map;
 
 public class WorkScheduler {
     private static BukkitTask workTask;
+    
+    // 存储每个村民的下次产出时间
+    private static Map<Integer, Long> nextWorkTime = new HashMap<>();
     
     /**
      * 初始化工作调度器
@@ -31,7 +36,23 @@ public class WorkScheduler {
             public void run() {
                 performWork();
             }
-        }.runTaskTimer(VillagerPro.getInstance(), 0L, interval); // 改为同步执行
+        }.runTaskTimer(VillagerPro.getInstance(), 0L, interval);
+        
+        // 初始化所有村民的下次产出时间
+        initializeWorkTimes();
+    }
+    
+    /**
+     * 初始化所有村民的下次产出时间
+     */
+    private static void initializeWorkTimes() {
+        for (Village village : VillageManager.getAllVillages()) {
+            List<VillagerData> villagers = VillagerManager.getVillagers(village.getId());
+            for (VillagerData villager : villagers) {
+                long workInterval = VillagerPro.getInstance().getConfig().getLong("villager.work_interval_ticks", 2400L);
+                nextWorkTime.put(villager.getId(), System.currentTimeMillis() + workInterval * 50);
+            }
+        }
     }
     
     /**
@@ -44,18 +65,48 @@ public class WorkScheduler {
             return;
         }
         
+        long currentTime = System.currentTimeMillis();
+        long workInterval = VillagerPro.getInstance().getConfig().getLong("villager.work_interval_ticks", 2400L) * 50;
+        
         for (Player player : Bukkit.getOnlinePlayers()) {
             Village village = VillageManager.getVillage(player.getUniqueId());
             if (village == null) continue;
 
             List<VillagerData> villagers = VillagerManager.getVillagers(village.getId());
             for (VillagerData villager : villagers) {
-                // 检查村民是否在线且在玩家附近
-                // 使用异步安全的方法检查
-                if (villager.getEntity() != null && 
-                    player.getWorld().equals(villager.getEntity().getWorld()) &&
-                    player.getLocation().distance(villager.getEntity().getLocation()) <= 32) {
-                    performVillagerWork(villager, village);
+                // 检查是否到工作时间
+                Long workTime = nextWorkTime.get(villager.getId());
+                if (workTime != null && currentTime >= workTime) {
+                    // 检查村民是否在线且在玩家附近（使用村民的实际工作范围）
+                    if (villager.getEntity() != null && 
+                        player.getWorld().equals(villager.getEntity().getWorld()) &&
+                        player.getLocation().distance(villager.getEntity().getLocation()) <= villager.getWorkRange()) {
+                        
+                        // 调试信息
+                        if (VillagerPro.getInstance().getConfig().getBoolean("debug", false)) {
+                            player.sendMessage("§7[调试] 村民 " + villager.getProfession() + " 开始工作");
+                        }
+                        
+                        performVillagerWork(villager, village);
+                    } else {
+                        // 调试信息 - 说明为什么没有工作
+                        if (VillagerPro.getInstance().getConfig().getBoolean("debug", false)) {
+                            String reason = "";
+                            if (villager.getEntity() == null) {
+                                reason = "村民实体不存在";
+                            } else if (!player.getWorld().equals(villager.getEntity().getWorld())) {
+                                reason = "村民在不同世界";
+                            } else {
+                                double distance = player.getLocation().distance(villager.getEntity().getLocation());
+                                int workRange = villager.getWorkRange();
+                                reason = "距离太远(" + String.format("%.1f", distance) + "格 > " + workRange + "格)";
+                            }
+                            player.sendMessage("§7[调试] 村民 " + villager.getProfession() + " 未工作: " + reason);
+                        }
+                    }
+                    
+                    // 设置下次工作时间
+                    nextWorkTime.put(villager.getId(), currentTime + workInterval);
                 }
             }
         }
@@ -129,6 +180,28 @@ public class WorkScheduler {
         }
         
         return baseAmount + levelBonus + skillBonus;
+    }
+    
+    /**
+     * 获取村民的剩余工作时间（毫秒）
+     * @param villagerId 村民ID
+     * @return 剩余时间，如果<=0则表示可以工作
+     */
+    public static long getRemainingWorkTime(int villagerId) {
+        Long workTime = nextWorkTime.get(villagerId);
+        if (workTime == null) {
+            return 0;
+        }
+        return workTime - System.currentTimeMillis();
+    }
+    
+    /**
+     * 检查村民是否可以工作
+     * @param villagerId 村民ID
+     * @return 是否可以工作
+     */
+    public static boolean canWorkNow(int villagerId) {
+        return getRemainingWorkTime(villagerId) <= 0;
     }
     
     /**

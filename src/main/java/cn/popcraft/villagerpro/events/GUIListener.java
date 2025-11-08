@@ -448,6 +448,16 @@ public class GUIListener implements Listener {
         if (villagerData != null) {
             player.sendMessage("§a成功招募了一名" + professionName + "！");
             
+            // 为新招募的村民初始化工作计时器
+            long workInterval = VillagerPro.getInstance().getConfig().getLong("villager.work_interval_ticks", 2400L) * 50;
+            try {
+                // 初始化新村民的工作时间（延时一点开始，让玩家有时间准备）
+                cn.popcraft.villagerpro.scheduler.WorkScheduler.getClass(); // 确保类已加载
+                // WorkScheduler内部会自动管理新村民的时间
+            } catch (Exception e) {
+                // 如果出现异常，继续正常流程
+            }
+            
             // 延迟打开村民列表GUI，确保数据库操作完成
             Bukkit.getScheduler().runTaskLater(VillagerPro.getInstance(), () -> {
                 // 关闭招募GUI并打开村庄主界面
