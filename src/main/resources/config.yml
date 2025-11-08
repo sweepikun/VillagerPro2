@@ -225,6 +225,90 @@ villager_upgrades:
           item: "villagerpro:treasure_map"
           amount: 2
 
+  shepherd:
+    - id: efficient_shearing
+      name: "高效剪毛"
+      description: "每次多收1个羊毛"
+      icon: SHEARS
+      max_level: 5
+      cost_multiplier: 1.4
+      costs:
+        - type: "vault"
+          amount: 200
+
+    - id: wool_expert
+      name: "羊毛专家"
+      description: "多色羊毛产出"
+      icon: RAINBOW_WOOL
+      max_level: 3
+      costs:
+        - type: "itemsadder"
+          item: "villagerpro:colored_wool"
+          amount: 2
+
+  priest:
+    - id: potion_master
+      name: "药剂大师"
+      description: "每次多产1瓶药剂"
+      icon: BREWING_STAND
+      max_level: 4
+      cost_multiplier: 1.5
+      costs:
+        - type: "vault"
+          amount: 300
+
+    - id: health_boost
+      name: "生命祝福"
+      description: "村庄居民生命值+1"
+      icon: HEART
+      max_level: 2
+      costs:
+        - type: "itemsadder"
+          item: "villagerpro:blessed_water"
+          amount: 3
+
+  librarian:
+    - id: enchantment_expert
+      name: "附魔专家"
+      description: "提供更高级的附魔服务"
+      icon: ENCHANTING_TABLE
+      max_level: 3
+      cost_multiplier: 1.6
+      costs:
+        - type: "itemsadder"
+          item: "villagerpro:enchanted_scroll"
+          amount: 2
+
+    - id: knowledge_bonus
+      name: "知识加成"
+      description: "所有村民经验获取+10%"
+      icon: BOOKSHELF
+      max_level: 2
+      costs:
+        - type: "playerpoints"
+          amount: 150
+
+  cartographer:
+    - id: map_expert
+      name: "制图专家"
+      description: "每天多产1张地图"
+      icon: MAP
+      max_level: 3
+      cost_multiplier: 1.5
+      costs:
+        - type: "vault"
+          amount: 250
+
+    - id: treasure_map
+      name: "藏宝图"
+      description: "提供特殊藏宝图"
+      icon: TREASURE_MAP
+      max_level: 2
+      costs:
+        - type: "itemsadder"
+          item: "villagerpro:ancient_map"
+          amount: 1
+
 # ==============================
 # GUI 配置
 # ==============================

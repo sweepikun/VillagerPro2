@@ -219,33 +219,49 @@ public class GUIListener implements Listener {
             
             // 检查是否是技能物品
             if (displayName.startsWith("§e")) {
-                // 获取技能ID和升级ID
-                String skillDisplayName = displayName.substring(2); // 移除颜色代码
-                
-                // 从配置中查找对应的技能ID
-                // 这里简化处理，实际应该通过更好的方式映射显示名称到技能ID
-                String profession = "farmer"; // 示例职业
-                String skillId = "efficient_harvest"; // 示例技能ID
-                
-                // 获取村民ID
+                // 获取村民信息
                 VillagerData villager = VillagerManager.getVillagerById(villagerId);
                 
                 if (villager != null) {
-                    // 检查是否能支付升级费用
-                    if (VillagerUpgradeManager.canAffordUpgrade(player, profession, skillId)) {
-                        // 支付费用
-                        if (VillagerUpgradeManager.payUpgradeCost(player, profession, skillId)) {
-                            // 应用升级
-                            if (VillagerUpgradeManager.applyVillagerUpgrade(villager, skillId)) {
-                                player.sendMessage("§a技能升级成功！");
+                    String profession = villager.getProfession();
+                    
+                    // 从lore中获取技能ID
+                    String skillId = null;
+                    if (meta.hasLore() && meta.getLore() != null) {
+                        for (String loreLine : meta.getLore()) {
+                            if (loreLine.startsWith("§7技能ID: §e")) {
+                                skillId = loreLine.substring(10); // 移除颜色代码
+                                break;
+                            }
+                        }
+                    }
+                    
+                    // 如果lore中没有技能ID，通过显示名称查找
+                    if (skillId == null) {
+                        skillId = findSkillIdByDisplayName(profession, displayName);
+                    }
+                    
+                    if (skillId != null) {
+                        // 检查是否能支付升级费用
+                        if (VillagerUpgradeManager.canAffordUpgrade(player, profession, skillId)) {
+                            // 支付费用
+                            if (VillagerUpgradeManager.payUpgradeCost(player, profession, skillId)) {
+                                // 应用升级
+                                if (VillagerUpgradeManager.applyVillagerUpgrade(villager, skillId)) {
+                                    player.sendMessage("§a技能升级成功！");
+                                    // 刷新升级GUI
+                                    GUIManager.openVillagerUpgradeGUI(player, villagerId);
+                                } else {
+                                    player.sendMessage("§c技能升级失败！");
+                                }
                             } else {
-                                player.sendMessage("§c技能升级失败！");
+                                player.sendMessage("§c支付费用失败！");
                             }
                         } else {
-                            player.sendMessage("§c支付费用失败！");
+                            player.sendMessage("§c你没有足够的资源来升级这个技能！");
                         }
                     } else {
-                        player.sendMessage("§c你没有足够的资源来升级这个技能！");
+                        player.sendMessage("§c无法识别技能！");
                     }
                 } else {
                     player.sendMessage("§c找不到该村民！");
@@ -470,5 +486,37 @@ public class GUIListener implements Listener {
         }
         
         player.closeInventory();
+    }
+    
+    /**
+     * 根据职业和显示名称查找技能ID
+     * @param profession 职业
+     * @param displayName 显示名称
+     * @return 技能ID，如果没有找到则返回null
+     */
+    private String findSkillIdByDisplayName(String profession, String displayName) {
+        String path = "villager_upgrades." + profession;
+        if (!cn.popcraft.villagerpro.VillagerPro.getInstance().getConfig().contains(path)) {
+            return null;
+        }
+        
+        // 移除颜色代码
+        String cleanDisplayName = displayName.replace("§e", "").replace("§7", "").trim();
+        
+        org.bukkit.configuration.ConfigurationSection section = 
+            cn.popcraft.villagerpro.VillagerPro.getInstance().getConfig().getConfigurationSection(path);
+        if (section == null) {
+            return null;
+        }
+        
+        for (String skillId : section.getKeys(false)) {
+            String skillName = cn.popcraft.villagerpro.VillagerPro.getInstance().getConfig()
+                .getString(path + "." + skillId + ".name", "");
+            if (cleanDisplayName.equals(skillName)) {
+                return skillId;
+            }
+        }
+        
+        return null;
     }
 }

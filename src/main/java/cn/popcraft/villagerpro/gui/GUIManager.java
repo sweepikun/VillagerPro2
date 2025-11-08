@@ -315,6 +315,7 @@ public class GUIManager {
                 int currentLevel = VillagerUpgradeManager.getVillagerSkillLevel(villagerId, skillId);
                 int maxLevel = VillagerUpgradeManager.getSkillMaxLevel(profession, skillId);
                 lore.add("§7等级: §e" + currentLevel + "/" + maxLevel);
+                lore.add("§7技能ID: §e" + skillId); // 添加技能ID用于后续处理
                 
                 // 显示成本
                 lore.add("");
