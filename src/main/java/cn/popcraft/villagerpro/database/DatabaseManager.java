@@ -90,6 +90,118 @@ public class DatabaseManager {
                     "PRIMARY KEY (villager_id, skill_id), " +
                     "FOREIGN KEY (villager_id) REFERENCES villagers(id) ON DELETE CASCADE" +
                     ")");
+            
+            // 创建访客表
+            statement.execute("CREATE TABLE IF NOT EXISTS visitors (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                    "village_id INTEGER NOT NULL, " +
+                    "type TEXT NOT NULL, " +
+                    "name TEXT NOT NULL, " +
+                    "display_name TEXT NOT NULL, " +
+                    "location_x REAL NOT NULL, " +
+                    "location_y REAL NOT NULL, " +
+                    "location_z REAL NOT NULL, " +
+                    "world TEXT NOT NULL, " +
+                    "spawned_at DATETIME DEFAULT CURRENT_TIMESTAMP, " +
+                    "expires_at DATETIME NOT NULL, " +
+                    "active BOOLEAN DEFAULT 1, " +
+                    "custom_data TEXT, " +
+                    "FOREIGN KEY (village_id) REFERENCES villages(id) ON DELETE CASCADE" +
+                    ")");
+            
+            // 创建访客交易表
+            statement.execute("CREATE TABLE IF NOT EXISTS visitor_deals (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                    "visitor_id INTEGER NOT NULL, " +
+                    "deal_type TEXT NOT NULL, " +
+                    "item_type TEXT NOT NULL, " +
+                    "amount_required INTEGER NOT NULL, " +
+                    "amount_delivered INTEGER DEFAULT 0, " +
+                    "price REAL DEFAULT 0.0, " +
+                    "reward_type TEXT, " +
+                    "reward_amount INTEGER DEFAULT 0, " +
+                    "reward_item TEXT, " +
+                    "player_name TEXT NOT NULL, " +
+                    "status TEXT NOT NULL DEFAULT 'pending', " +
+                    "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, " +
+                    "completed_at DATETIME, " +
+                    "expires_at DATETIME NOT NULL, " +
+                    "FOREIGN KEY (visitor_id) REFERENCES visitors(id) ON DELETE CASCADE" +
+                    ")");
+            
+            // 创建村庄装饰表
+            statement.execute("CREATE TABLE IF NOT EXISTS decorations (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                    "village_id INTEGER NOT NULL, " +
+                    "decoration_type TEXT NOT NULL, " +
+                    "item_type TEXT NOT NULL, " +
+                    "amount INTEGER NOT NULL DEFAULT 1, " +
+                    "location_x REAL NOT NULL, " +
+                    "location_y REAL NOT NULL, " +
+                    "location_z REAL NOT NULL, " +
+                    "world TEXT NOT NULL, " +
+                    "placed_at DATETIME DEFAULT CURRENT_TIMESTAMP, " +
+                    "FOREIGN KEY (village_id) REFERENCES villages(id) ON DELETE CASCADE" +
+                    ")");
+            
+            // 创建村民个性表
+            statement.execute("CREATE TABLE IF NOT EXISTS villager_personality (" +
+                    "villager_id INTEGER PRIMARY KEY, " +
+                    "loyalty INTEGER NOT NULL DEFAULT 50, " +
+                    "mood INTEGER NOT NULL DEFAULT 70, " +
+                    "last_interaction DATETIME, " +
+                    "interaction_count INTEGER DEFAULT 0, " +
+                    "FOREIGN KEY (villager_id) REFERENCES villagers(id) ON DELETE CASCADE" +
+                    ")");
+            
+            // 创建事件记录表
+            statement.execute("CREATE TABLE IF NOT EXISTS events (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                    "village_id INTEGER NOT NULL, " +
+                    "event_type TEXT NOT NULL, " +
+                    "event_data TEXT, " +
+                    "triggered_at DATETIME DEFAULT CURRENT_TIMESTAMP, " +
+                    "expires_at DATETIME, " +
+                    "FOREIGN KEY (village_id) REFERENCES villages(id) ON DELETE CASCADE" +
+                    ")");
+            
+            // 创建生态链配置表
+            statement.execute("CREATE TABLE IF NOT EXISTS eco_chains (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                    "village_id INTEGER NOT NULL, " +
+                    "chain_type TEXT NOT NULL, " +
+                    "producer_profession TEXT NOT NULL, " +
+                    "consumer_profession TEXT NOT NULL, " +
+                    "input_item TEXT NOT NULL, " +
+                    "output_item TEXT NOT NULL, " +
+                    "ratio INTEGER NOT NULL DEFAULT 1, " +
+                    "efficiency REAL DEFAULT 1.0, " +
+                    "enabled BOOLEAN DEFAULT 1, " +
+                    "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, " +
+                    "FOREIGN KEY (village_id) REFERENCES villages(id) ON DELETE CASCADE" +
+                    ")");
+            
+            // 创建联盟表
+            statement.execute("CREATE TABLE IF NOT EXISTS alliances (" +
+                    "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
+                    "name TEXT NOT NULL, " +
+                    "owner_village_id INTEGER NOT NULL, " +
+                    "max_members INTEGER DEFAULT 5, " +
+                    "created_at DATETIME DEFAULT CURRENT_TIMESTAMP, " +
+                    "FOREIGN KEY (owner_village_id) REFERENCES villages(id) ON DELETE CASCADE" +
+                    ")");
+            
+            // 创建联盟成员表
+            statement.execute("CREATE TABLE IF NOT EXISTS alliance_members (" +
+                    "alliance_id INTEGER NOT NULL, " +
+                    "village_id INTEGER NOT NULL, " +
+                    "joined_at DATETIME DEFAULT CURRENT_TIMESTAMP, " +
+                    "PRIMARY KEY (alliance_id, village_id), " +
+                    "FOREIGN KEY (alliance_id) REFERENCES alliances(id) ON DELETE CASCADE, " +
+                    "FOREIGN KEY (village_id) REFERENCES villages(id) ON DELETE CASCADE" +
+                    ")");
+            
+            VillagerPro.getInstance().getLogger().info("数据库表创建完成");
                     
         } catch (SQLException e) {
             e.printStackTrace();

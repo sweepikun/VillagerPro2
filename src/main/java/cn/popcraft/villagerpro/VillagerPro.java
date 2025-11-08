@@ -5,6 +5,7 @@ import cn.popcraft.villagerpro.database.DatabaseManager;
 import cn.popcraft.villagerpro.economy.EconomyManager;
 import cn.popcraft.villagerpro.events.EventManager;
 import cn.popcraft.villagerpro.managers.FollowManager;
+import cn.popcraft.villagerpro.managers.VisitorManager;
 import cn.popcraft.villagerpro.scheduler.WorkScheduler;
 import cn.popcraft.villagerpro.util.Messages;
 import net.milkbowl.vault.economy.Economy;
@@ -42,6 +43,24 @@ public class VillagerPro extends JavaPlugin {
         // 初始化工作调度器
         WorkScheduler.initialize();
         
+        // 初始化访客系统
+        VisitorManager.getInstance().initialize();
+        
+        // 初始化村民个性系统
+        if (getConfig().getBoolean("features.personality", true)) {
+            PersonalityManager.getInstance();
+        }
+        
+        // 初始化装饰系统
+        if (getConfig().getBoolean("features.decorations", true)) {
+            DecorationManager.getInstance();
+        }
+        
+        // 初始化防御系统
+        if (getConfig().getBoolean("features.defense", true)) {
+            DefenseManager.getInstance();
+        }
+        
         getLogger().info("VillagerPro has been enabled!");
     }
     
@@ -52,6 +71,9 @@ public class VillagerPro extends JavaPlugin {
         
         // 关闭工作调度器
         WorkScheduler.shutdown();
+        
+        // 关闭访客系统
+        VisitorManager.getInstance().shutdown();
         
         // 关闭数据库连接池
         DatabaseManager.shutdown();
