@@ -27,8 +27,15 @@ import org.bukkit.inventory.meta.ItemMeta;
 import java.util.List;
 import org.bukkit.entity.Ageable;
 import java.util.UUID;
+import java.util.HashMap;
+import java.util.Map;
+
+import org.bukkit.event.player.PlayerQuitEvent;
 
 public class GUIListener implements Listener {
+    
+    // 存储当前GUI中的村民ID，用于在GUI操作中传递
+    private static Map<Player, Integer> currentVillagerId = new HashMap<>();
     
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
@@ -67,6 +74,12 @@ public class GUIListener implements Listener {
                 handleVillageUpgradeGUI(player, clickedItem);
             }
         }
+    }
+    
+    @EventHandler
+    public void onPlayerQuit(PlayerQuitEvent event) {
+        // 清理玩家数据
+        currentVillagerId.remove(event.getPlayer());
     }
     
     @EventHandler
@@ -125,6 +138,8 @@ public class GUIListener implements Listener {
                 String idStr = displayName.substring(displayName.indexOf("(ID: ") + 5, displayName.lastIndexOf(")"));
                 try {
                     int villagerId = Integer.parseInt(idStr);
+                    // 存储当前村民ID供后续操作使用
+                    currentVillagerId.put(player, villagerId);
                     GUIManager.openVillagerInfoGUI(player, villagerId);
                 } catch (NumberFormatException e) {
                     player.sendMessage("§c无效的村民ID！");
@@ -138,17 +153,20 @@ public class GUIListener implements Listener {
     }
     
     private void handleVillagerInfoGUI(Player player, ItemStack clickedItem) {
+        // 获取当前GUI中的村民ID
+        Integer villagerId = currentVillagerId.get(player);
+        if (villagerId == null) {
+            player.sendMessage("§c村民信息异常！");
+            return;
+        }
+        
         switch (clickedItem.getType()) {
             case EXPERIENCE_BOTTLE:
-                // 获取当前打开的GUI中的村民ID
-                // 这里简化处理，实际应该通过其他方式传递村民ID
-                // 注意：这里我们假设在调用此方法前已经知道要升级的村民ID
-                GUIManager.openVillagerUpgradeGUI(player, 1); // 示例ID
+                GUIManager.openVillagerUpgradeGUI(player, villagerId);
                 break;
             case LEAD:
                 // 切换跟随模式
-                // 这里简化处理，实际应该通过其他方式传递村民ID
-                VillagerData villager = VillagerManager.getVillagerById(1); // 示例ID
+                VillagerData villager = VillagerManager.getVillagerById(villagerId);
                 if (villager != null) {
                     String currentMode = villager.getFollowMode();
                     String newMode;
@@ -166,8 +184,15 @@ public class GUIListener implements Listener {
                             newMode = "FREE";
                     }
                     villager.setFollowMode(newMode);
-                    VillagerManager.updateVillager(villager);
-                    player.sendMessage("§a跟随模式已切换为: " + newMode);
+                    if (VillagerManager.updateVillager(villager)) {
+                        player.sendMessage("§a跟随模式已切换为: " + newMode);
+                        // 刷新GUI
+                        GUIManager.openVillagerInfoGUI(player, villagerId);
+                    } else {
+                        player.sendMessage("§c更新跟随模式失败！");
+                    }
+                } else {
+                    player.sendMessage("§c找不到该村民！");
                 }
                 break;
             case ARROW:
@@ -180,6 +205,14 @@ public class GUIListener implements Listener {
     }
     
     private void handleVillagerUpgradeGUI(Player player, ItemStack clickedItem) {
+        // 获取当前GUI中的村民ID
+        Integer villagerId = currentVillagerId.get(player);
+        if (villagerId == null) {
+            player.sendMessage("§c村民信息异常！");
+            player.closeInventory();
+            return;
+        }
+        
         ItemMeta meta = clickedItem.getItemMeta();
         if (meta != null && meta.hasDisplayName()) {
             String displayName = meta.getDisplayName();
@@ -195,8 +228,6 @@ public class GUIListener implements Listener {
                 String skillId = "efficient_harvest"; // 示例技能ID
                 
                 // 获取村民ID
-                // 这里简化处理，实际应该通过其他方式传递村民ID
-                int villagerId = 1; // 示例ID
                 VillagerData villager = VillagerManager.getVillagerById(villagerId);
                 
                 if (villager != null) {
@@ -220,9 +251,18 @@ public class GUIListener implements Listener {
                     player.sendMessage("§c找不到该村民！");
                 }
             } else if (displayName.equals("§c返回")) {
-                GUIManager.openVillagerInfoGUI(player, 1); // 示例ID
+                // 获取当前GUI中的村民ID
+                Integer villagerId = currentVillagerId.get(player);
+                if (villagerId != null) {
+                    GUIManager.openVillagerInfoGUI(player, villagerId);
+                } else {
+                    player.sendMessage("§c村民信息异常！");
+                    player.closeInventory();
+                }
             } else if (displayName.equals("§c关闭")) {
                 player.closeInventory();
+                // 清理存储的村民ID
+                currentVillagerId.remove(player);
             }
         }
     }
@@ -410,10 +450,13 @@ public class GUIListener implements Listener {
             
             // 延迟打开村民列表GUI，确保数据库操作完成
             Bukkit.getScheduler().runTaskLater(VillagerPro.getInstance(), () -> {
+                // 关闭招募GUI并打开村庄主界面
+                player.closeInventory();
                 GUIManager.openVillageGUI(player);
             }, 1L);
         } else {
             player.sendMessage("§c招募村民失败！");
+            player.closeInventory();
         }
         
         player.closeInventory();
