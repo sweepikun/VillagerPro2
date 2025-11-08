@@ -280,9 +280,11 @@ public class GUIManager {
         
         // 获取该职业可用的技能
         String profession = villager.getProfession();
-        if (VillagerPro.getInstance().getConfig().contains("villager_upgrades." + profession)) {
+        String upgradePath = "villager_upgrades." + profession;
+        if (VillagerPro.getInstance().getConfig().contains(upgradePath) && 
+            VillagerPro.getInstance().getConfig().getConfigurationSection(upgradePath) != null) {
             Set<String> skills = VillagerPro.getInstance().getConfig()
-                    .getConfigurationSection("villager_upgrades." + profession).getKeys(false);
+                    .getConfigurationSection(upgradePath).getKeys(false);
             
             int slot = 10; // 起始槽位
             for (String skillId : skills) {
