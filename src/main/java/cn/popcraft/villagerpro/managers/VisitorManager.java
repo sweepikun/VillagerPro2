@@ -247,27 +247,42 @@ public class VisitorManager {
      * 显示商人GUI
      */
     private void showMerchantGUI(Player player, VisitorData visitor) {
-        // TODO: 实现商人GUI
-        player.sendMessage("§e[商人] 欢迎来到我的商店！");
-        player.sendMessage("§7点击查看我的商品...");
+        try {
+            cn.popcraft.villagerpro.gui.VisitorGUIManager.showMerchantGUI(player, visitor);
+        } catch (Exception e) {
+            // Fallback to simple message if GUI fails
+            player.sendMessage("§e[商人] 欢迎来到我的商店！");
+            player.sendMessage("§7点击查看我的商品...");
+            VillagerPro.getInstance().getLogger().warning("访客GUI显示失败: " + e.getMessage());
+        }
     }
     
     /**
      * 显示旅行者GUI
      */
     private void showTravelerGUI(Player player, VisitorData visitor) {
-        // TODO: 实现旅行者GUI
-        player.sendMessage("§e[旅行者] 你好，村长！");
-        player.sendMessage("§7我需要一些帮助...");
+        try {
+            cn.popcraft.villagerpro.gui.VisitorGUIManager.showTravelerGUI(player, visitor);
+        } catch (Exception e) {
+            // Fallback to simple message if GUI fails
+            player.sendMessage("§e[旅行者] 你好，村长！");
+            player.sendMessage("§7我需要一些帮助...");
+            VillagerPro.getInstance().getLogger().warning("访客GUI显示失败: " + e.getMessage());
+        }
     }
     
     /**
      * 显示节日使者GUI
      */
     private void showFestivalGUI(Player player, VisitorData visitor) {
-        // TODO: 实现节日使者GUI
-        player.sendMessage("§e[节日使者] 节日快乐！");
-        player.sendMessage("§7来领取节日奖励吧！");
+        try {
+            cn.popcraft.villagerpro.gui.VisitorGUIManager.showFestivalGUI(player, visitor);
+        } catch (Exception e) {
+            // Fallback to simple message if GUI fails
+            player.sendMessage("§e[节日使者] 节日快乐！");
+            player.sendMessage("§7来领取节日奖励吧！");
+            VillagerPro.getInstance().getLogger().warning("访客GUI显示失败: " + e.getMessage());
+        }
     }
     
     // ============== 私有方法 ==============

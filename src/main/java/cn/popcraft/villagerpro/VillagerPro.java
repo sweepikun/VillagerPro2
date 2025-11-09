@@ -6,6 +6,8 @@ import cn.popcraft.villagerpro.economy.EconomyManager;
 import cn.popcraft.villagerpro.events.EventManager;
 import cn.popcraft.villagerpro.managers.DefenseManager;
 import cn.popcraft.villagerpro.managers.DecorationManager;
+import cn.popcraft.villagerpro.managers.EcoChainManager;
+import cn.popcraft.villagerpro.managers.LegacyManager;
 import cn.popcraft.villagerpro.managers.PersonalityManager;
 import cn.popcraft.villagerpro.managers.VisitorManager;
 import cn.popcraft.villagerpro.scheduler.WorkScheduler;
@@ -65,7 +67,17 @@ public class VillagerPro extends JavaPlugin {
             DefenseManager.getInstance();
         }
         
-        getLogger().info("VillagerPro has been enabled!");
+        // 初始化生态联动系统
+        if (getConfig().getBoolean("features.eco_chain", true)) {
+            EcoChainManager.getInstance();
+        }
+        
+        // 初始化传承系统
+        if (getConfig().getBoolean("features.legacy", true)) {
+            LegacyManager.getInstance();
+        }
+        
+        getLogger().info("VillagerPro 2.0 - 沉浸式村庄经营生态系统已启用！");
     }
     
     @Override

@@ -72,6 +72,10 @@ public class GUIListener implements Listener {
                 handleRecruitGUI(player, clickedItem);
             } else if (inventoryTitle.equals("§f[VP] 村庄升级")) {
                 handleVillageUpgradeGUI(player, clickedItem);
+            } else if (inventoryTitle.contains("村庄装饰商店") || inventoryTitle.contains("装饰管理")) {
+                handleDecorationGUI(player, clickedItem);
+            } else if (inventoryTitle.contains("[商人]") || inventoryTitle.contains("[旅行者]") || inventoryTitle.contains("[节日使者]")) {
+                handleVisitorGUI(player, clickedItem);
             }
         }
     }
@@ -541,5 +545,31 @@ public class GUIListener implements Listener {
         }
         
         return null;
+    }
+    
+    /**
+     * 处理装饰GUI点击
+     */
+    private void handleDecorationGUI(Player player, ItemStack clickedItem) {
+        // 委托给装饰GUI管理器处理
+        try {
+            cn.popcraft.villagerpro.gui.DecorationGUIManager.handleGUIClick(player, 0, clickedItem);
+        } catch (Exception e) {
+            VillagerPro.getInstance().getLogger().warning("装饰GUI处理失败: " + e.getMessage());
+            player.sendMessage("§c装饰功能暂时不可用，请重试");
+        }
+    }
+    
+    /**
+     * 处理访客GUI点击
+     */
+    private void handleVisitorGUI(Player player, ItemStack clickedItem) {
+        // 委托给访客GUI管理器处理
+        try {
+            cn.popcraft.villagerpro.gui.VisitorGUIManager.handleGUIClick(player, 0, clickedItem);
+        } catch (Exception e) {
+            VillagerPro.getInstance().getLogger().warning("访客GUI处理失败: " + e.getMessage());
+            player.sendMessage("§c访客功能暂时不可用，请重试");
+        }
     }
 }
