@@ -3,6 +3,7 @@ package cn.popcraft.villagerpro.database;
 import com.zaxxer.hikari.HikariConfig;
 import com.zaxxer.hikari.HikariDataSource;
 
+import cn.popcraft.villagerpro.VillagerPro;
 import java.io.File;
 import java.sql.Connection;
 import java.sql.SQLException;

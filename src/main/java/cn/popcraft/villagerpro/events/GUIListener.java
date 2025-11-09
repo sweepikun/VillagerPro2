@@ -268,7 +268,6 @@ public class GUIListener implements Listener {
                 }
             } else if (displayName.equals("§c返回")) {
                 // 获取当前GUI中的村民ID
-                Integer villagerId = currentVillagerId.get(player);
                 if (villagerId != null) {
                     GUIManager.openVillagerInfoGUI(player, villagerId);
                 } else {
@@ -467,8 +466,6 @@ public class GUIListener implements Listener {
             // 为新招募的村民初始化工作计时器
             long workInterval = VillagerPro.getInstance().getConfig().getLong("villager.work_interval_ticks", 2400L) * 50;
             try {
-                // 初始化新村民的工作时间（延时一点开始，让玩家有时间准备）
-                cn.popcraft.villagerpro.scheduler.WorkScheduler.getClass(); // 确保类已加载
                 // WorkScheduler内部会自动管理新村民的时间
             } catch (Exception e) {
                 // 如果出现异常，继续正常流程
