@@ -60,7 +60,7 @@ public class GUIListener implements Listener {
             // 根据GUI类型处理点击事件
             if (inventoryTitle.equals("§f[VP] 村庄信息")) {
                 handleVillageGUI(player, clickedItem);
-            } else if (inventoryTitle.equals("§f[VP] 村民列表")) {
+            } else if (inventoryTitle.startsWith("§f[VP] 村民列表")) {
                 handleVillagerListGUI(player, clickedItem, inventory);
             } else if (inventoryTitle.equals("§f[VP] 村民详情")) {
                 handleVillagerInfoGUI(player, clickedItem);
@@ -144,11 +144,37 @@ public class GUIListener implements Listener {
                 } catch (NumberFormatException e) {
                     player.sendMessage("§c无效的村民ID！");
                 }
-            } else if (displayName.equals("§c返回")) {
+            } else if (displayName.equals("§a上一页")) {
+                // 上一页按钮
+                int currentPage = getCurrentPageFromTitle(inventory.getTitle());
+                if (currentPage > 1) {
+                    GUIManager.openVillagerListGUI(player, currentPage - 1);
+                }
+            } else if (displayName.equals("§a下一页")) {
+                // 下一页按钮
+                int currentPage = getCurrentPageFromTitle(inventory.getTitle());
+                GUIManager.openVillagerListGUI(player, currentPage + 1);
+            } else if (displayName.equals("§c返回村庄")) {
                 GUIManager.openVillageGUI(player);
             } else if (displayName.equals("§c关闭")) {
                 player.closeInventory();
             }
+        }
+    }
+    
+    /**
+     * 从GUI标题中提取当前页码
+     * @param title GUI标题
+     * @return 当前页码，如果解析失败返回1
+     */
+    private int getCurrentPageFromTitle(String title) {
+        try {
+            // 格式：村民列表 §7(第X页/共Y页)
+            String pageInfo = title.substring(title.indexOf("第") + 1);
+            String currentPageStr = pageInfo.substring(0, pageInfo.indexOf("页"));
+            return Integer.parseInt(currentPageStr);
+        } catch (Exception e) {
+            return 1; // 默认返回第1页
         }
     }
     
@@ -196,7 +222,7 @@ public class GUIListener implements Listener {
                 }
                 break;
             case ARROW:
-                GUIManager.openVillagerListGUI(player);
+                GUIManager.openVillagerListGUI(player, 1); // 返回村民列表第1页
                 break;
             case BARRIER:
                 player.closeInventory();

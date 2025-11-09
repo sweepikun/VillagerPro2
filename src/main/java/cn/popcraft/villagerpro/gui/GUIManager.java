@@ -114,6 +114,15 @@ public class GUIManager {
      * @param player 玩家
      */
     public static void openVillagerListGUI(Player player) {
+        openVillagerListGUI(player, 1); // 默认显示第1页
+    }
+    
+    /**
+     * 打开村民列表界面（分页版本）
+     * @param player 玩家
+     * @param page 页码（从1开始）
+     */
+    public static void openVillagerListGUI(Player player, int page) {
         Village village = VillageManager.getVillage(player.getUniqueId());
         if (village == null) {
             player.sendMessage("§c你还没有创建村庄！");
@@ -121,15 +130,33 @@ public class GUIManager {
         }
         
         List<VillagerData> villagers = VillagerManager.getVillagers(village.getId());
+        if (villagers.isEmpty()) {
+            player.sendMessage("§7你还没有招募任何村民！");
+            return;
+        }
         
-        // 创建GUI (根据村民数量调整大小，最大54个格子)
-        int size = Math.min(((villagers.size() / 9) + 1) * 9, 54);
-        size = Math.max(size, 9); // 至少1行
+        // 分页设置
+        int VILLAGERS_PER_PAGE = 36; // 每页最多显示36个村民（4行×9列）
+        int NAVIGATION_ROWS = 2; // 底部保留2行用于导航
         
-        Inventory gui = Bukkit.createInventory(null, size, GUI_PREFIX + "村民列表");
+        // 计算总页数
+        int totalPages = (villagers.size() + VILLAGERS_PER_PAGE - 1) / VILLAGERS_PER_PAGE;
         
-        // 显示村民
-        for (int i = 0; i < villagers.size() && i < size - 9; i++) {
+        // 修正页码
+        if (page < 1) page = 1;
+        if (page > totalPages) page = totalPages;
+        
+        // 计算当前页的村民范围
+        int startIndex = (page - 1) * VILLAGERS_PER_PAGE;
+        int endIndex = Math.min(startIndex + VILLAGERS_PER_PAGE, villagers.size());
+        
+        // 创建固定大小的GUI（54格，6行）
+        int size = 54;
+        Inventory gui = Bukkit.createInventory(null, size, GUI_PREFIX + "村民列表 §7(第" + page + "页/共" + totalPages + "页)");
+        
+        // 显示当前页的村民
+        for (int i = startIndex; i < endIndex; i++) {
+            int slotIndex = i - startIndex; // 在当前页中的位置 (0-35)
             VillagerData villager = villagers.get(i);
             
             Material iconMaterial = getProfessionIcon(villager.getProfession());
@@ -155,7 +182,7 @@ public class GUIManager {
             meta.setLore(lore);
             
             villagerItem.setItemMeta(meta);
-            gui.setItem(i, villagerItem);
+            gui.setItem(slotIndex, villagerItem);
         }
         
         // 填充背景玻璃板
@@ -164,23 +191,65 @@ public class GUIManager {
         backgroundMeta.setDisplayName(" ");
         background.setItemMeta(backgroundMeta);
         
-        for (int i = Math.max(0, villagers.size()); i < size - 9; i++) {
-            gui.setItem(i, background);
+        // 填充空位
+        for (int i = 0; i < size - 18; i++) { // 保留最后2行(18格)给导航按钮
+            if (gui.getItem(i) == null) {
+                gui.setItem(i, background);
+            }
         }
         
-        // 返回按钮
+        // 导航按钮（第5行，第17-20格）
+        if (page > 1) {
+            // 上一页按钮
+            ItemStack prevButton = new ItemStack(Material.ARROW);
+            ItemMeta prevMeta = prevButton.getItemMeta();
+            prevMeta.setDisplayName("§a上一页");
+            List<String> prevLore = new java.util.ArrayList<>();
+            prevLore.add("§7当前页: §e" + page + "§7/§e" + totalPages);
+            prevLore.add("§7点击返回上一页");
+            prevMeta.setLore(prevLore);
+            prevButton.setItemMeta(prevMeta);
+            gui.setItem(36, prevButton); // 第5行第1格
+        }
+        
+        if (page < totalPages) {
+            // 下一页按钮
+            ItemStack nextButton = new ItemStack(Material.ARROW);
+            ItemMeta nextMeta = nextButton.getItemMeta();
+            nextMeta.setDisplayName("§a下一页");
+            List<String> nextLore = new java.util.ArrayList<>();
+            nextLore.add("§7当前页: §e" + page + "§7/§e" + totalPages);
+            nextLore.add("§7点击查看下一页");
+            nextMeta.setLore(nextLore);
+            nextButton.setItemMeta(nextMeta);
+            gui.setItem(44, nextButton); // 第5行第9格（从0开始计数，所以是第44格）
+        }
+        
+        // 页面信息显示
+        ItemStack pageInfo = new ItemStack(Material.BOOK);
+        ItemMeta pageInfoMeta = pageInfo.getItemMeta();
+        pageInfoMeta.setDisplayName("§6页面信息");
+        List<String> pageInfoLore = new java.util.ArrayList<>();
+        pageInfoLore.add("§7村民总数: §e" + villagers.size());
+        pageInfoLore.add("§7当前页: §e" + page + "§7/§e" + totalPages);
+        pageInfoLore.add("§7本页显示: §e" + (endIndex - startIndex) + "§7个村民");
+        pageInfoMeta.setLore(pageInfoLore);
+        pageInfo.setItemMeta(pageInfoMeta);
+        gui.setItem(40, pageInfo); // 第5行中间
+        
+        // 返回按钮（第6行）
         ItemStack backButton = new ItemStack(Material.ARROW);
         ItemMeta backMeta = backButton.getItemMeta();
-        backMeta.setDisplayName("§c返回");
+        backMeta.setDisplayName("§c返回村庄");
         backButton.setItemMeta(backMeta);
-        gui.setItem(size - 9, backButton);
+        gui.setItem(45, backButton); // 第6行第2格
         
-        // 关闭按钮
+        // 关闭按钮（第6行）
         ItemStack closeButton = new ItemStack(Material.BARRIER);
         ItemMeta closeMeta = closeButton.getItemMeta();
         closeMeta.setDisplayName("§c关闭");
         closeButton.setItemMeta(closeMeta);
-        gui.setItem(size - 1, closeButton);
+        gui.setItem(53, closeButton); // 第6行第9格
         
         player.openInventory(gui);
     }
