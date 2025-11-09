@@ -61,7 +61,7 @@ public class GUIListener implements Listener {
             if (inventoryTitle.equals("§f[VP] 村庄信息")) {
                 handleVillageGUI(player, clickedItem);
             } else if (inventoryTitle.startsWith("§f[VP] 村民列表")) {
-                handleVillagerListGUI(player, clickedItem, inventory);
+                handleVillagerListGUI(player, clickedItem, inventory, event);
             } else if (inventoryTitle.equals("§f[VP] 村民详情")) {
                 handleVillagerInfoGUI(player, clickedItem);
             } else if (inventoryTitle.equals("§f[VP] 村民升级")) {
@@ -127,7 +127,7 @@ public class GUIListener implements Listener {
         }
     }
     
-    private void handleVillagerListGUI(Player player, ItemStack clickedItem, Inventory inventory) {
+    private void handleVillagerListGUI(Player player, ItemStack clickedItem, Inventory inventory, InventoryClickEvent event) {
         ItemMeta meta = clickedItem.getItemMeta();
         if (meta != null && meta.hasDisplayName()) {
             String displayName = meta.getDisplayName();
@@ -146,13 +146,13 @@ public class GUIListener implements Listener {
                 }
             } else if (displayName.equals("§a上一页")) {
                 // 上一页按钮
-                int currentPage = getCurrentPageFromTitle(inventory.getTitle());
+                int currentPage = getCurrentPageFromTitle(event.getView().getTitle());
                 if (currentPage > 1) {
                     GUIManager.openVillagerListGUI(player, currentPage - 1);
                 }
             } else if (displayName.equals("§a下一页")) {
                 // 下一页按钮
-                int currentPage = getCurrentPageFromTitle(inventory.getTitle());
+                int currentPage = getCurrentPageFromTitle(event.getView().getTitle());
                 GUIManager.openVillagerListGUI(player, currentPage + 1);
             } else if (displayName.equals("§c返回村庄")) {
                 GUIManager.openVillageGUI(player);

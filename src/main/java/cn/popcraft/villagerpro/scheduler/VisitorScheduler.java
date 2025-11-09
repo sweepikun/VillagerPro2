@@ -17,7 +17,6 @@ import java.util.Random;
 public class VisitorScheduler {
     
     private final VillagerPro plugin;
-    private final VillageManager villageManager;
     private final VisitorManager visitorManager;
     private final Random random;
     private BukkitRunnable task;
@@ -25,7 +24,7 @@ public class VisitorScheduler {
     
     public VisitorScheduler() {
         this.plugin = VillagerPro.getInstance();
-        this.villageManager = VillageManager.getInstance();
+        // VillageManager没有单例模式，使用静态方法直接调用
         this.visitorManager = VisitorManager.getInstance();
         this.random = new Random();
     }
@@ -75,7 +74,7 @@ public class VisitorScheduler {
      */
     private void checkAndSpawnVisitors() {
         // 获取所有村庄
-        List<Village> villages = villageManager.getAllVillages();
+        List<Village> villages = VillageManager.getAllVillages();
         if (villages.isEmpty()) return;
         
         // 遍历村庄，检查是否需要生成访客
@@ -159,7 +158,7 @@ public class VisitorScheduler {
      * 强制为指定村庄生成访客（用于命令或测试）
      */
     public boolean forceSpawnVisitor(int villageId) {
-        Village village = villageManager.getVillageById(villageId);
+        Village village = VillageManager.getVillageById(villageId);
         if (village == null) {
             plugin.getLogger().warning("找不到村庄 ID: " + villageId);
             return false;

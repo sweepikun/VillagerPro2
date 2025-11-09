@@ -2,6 +2,7 @@ package cn.popcraft.villagerpro.managers;
 
 import cn.popcraft.villagerpro.VillagerPro;
 import cn.popcraft.villagerpro.database.DatabaseManager;
+import cn.popcraft.villagerpro.economy.CostEntry;
 import cn.popcraft.villagerpro.economy.CostHandler;
 import cn.popcraft.villagerpro.models.Village;
 import org.bukkit.Location;
@@ -70,8 +71,13 @@ public class DecorationManager {
         int prosperityBoost = decorationConfig.getInt("prosperity_boost", 0);
         
         // 检查并扣除成本
-        if (!costHandler.checkAndConsumeCost(player, costList)) {
+        List<CostEntry> parsedCosts = parseCosts(costList);
+        if (!costHandler.canAfford(player, parsedCosts)) {
             player.sendMessage("§c资源不足，无法购买 " + name);
+            return false;
+        }
+        if (!costHandler.deduct(player, parsedCosts)) {
+            player.sendMessage("§c扣除资源失败，请重试");
             return false;
         }
         
@@ -192,8 +198,8 @@ public class DecorationManager {
      */
     private void enableFlowerBedEffect(Village village, Block block) {
         // 给附近的村民增加情绪值
-        VillagerManager villagerManager = VillagerManager.getInstance();
         // 这里可以遍历村庄的村民并增加情绪值
+        // 使用 VillagerManager.getVillagers(villageId) 获取村民列表
     }
     
     /**
@@ -372,7 +378,7 @@ public class DecorationManager {
         }
         
         public Location getLocation() {
-            return new Location(plugin.getServer().getWorld(world), x, y, z);
+            return new Location(org.bukkit.Bukkit.getServer().getWorld(world), x, y, z);
         }
         
         // Getters
@@ -386,5 +392,32 @@ public class DecorationManager {
         public double getZ() { return z; }
         public String getWorld() { return world; }
         public java.sql.Timestamp getPlacedAt() { return placedAt; }
+    }
+    
+    /**
+     * 解析成本字符串列表为CostEntry列表
+     * 格式: "vault:100", "playerpoints:50", "itemsadder:10:item_id"
+     */
+    private List<CostEntry> parseCosts(List<String> costStrings) {
+        List<CostEntry> costs = new ArrayList<>();
+        for (String costString : costStrings) {
+            try {
+                String[] parts = costString.split(":");
+                if (parts.length >= 2) {
+                    String type = parts[0].toLowerCase();
+                    double amount = Double.parseDouble(parts[1]);
+                    
+                    if ("itemsadder".equals(type) && parts.length >= 3) {
+                        String item = parts[2];
+                        costs.add(new CostEntry(type, amount, item));
+                    } else {
+                        costs.add(new CostEntry(type, amount));
+                    }
+                }
+            } catch (NumberFormatException | ArrayIndexOutOfBoundsException e) {
+                plugin.getLogger().warning("无效的成本格式: " + costString);
+            }
+        }
+        return costs;
     }
 }

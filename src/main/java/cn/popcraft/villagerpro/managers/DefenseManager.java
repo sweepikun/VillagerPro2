@@ -2,6 +2,7 @@ package cn.popcraft.villagerpro.managers;
 
 import cn.popcraft.villagerpro.VillagerPro;
 import cn.popcraft.villagerpro.database.DatabaseManager;
+import cn.popcraft.villagerpro.economy.CostEntry;
 import cn.popcraft.villagerpro.economy.CostHandler;
 import cn.popcraft.villagerpro.models.Village;
 import org.bukkit.Bukkit;
@@ -16,6 +17,7 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 
@@ -68,8 +70,13 @@ public class DefenseManager {
         
         // 检查召唤成本
         List<String> costList = plugin.getConfig().getStringList("defense.guard.cost");
-        if (!costHandler.checkAndConsumeCost(player, costList)) {
+        List<CostEntry> parsedCosts = parseCosts(costList);
+        if (!costHandler.canAfford(player, parsedCosts)) {
             player.sendMessage("§c资源不足，无法召唤守卫");
+            return false;
+        }
+        if (!costHandler.deduct(player, parsedCosts)) {
+            player.sendMessage("§c扣除资源失败，请重试");
             return false;
         }
         
@@ -315,5 +322,32 @@ public class DefenseManager {
         public long getSpawnTime() {
             return spawnTime;
         }
+    }
+    
+    /**
+     * 解析成本字符串列表为CostEntry列表
+     * 格式: "vault:100", "playerpoints:50", "itemsadder:10:item_id"
+     */
+    private List<CostEntry> parseCosts(List<String> costStrings) {
+        List<CostEntry> costs = new ArrayList<>();
+        for (String costString : costStrings) {
+            try {
+                String[] parts = costString.split(":");
+                if (parts.length >= 2) {
+                    String type = parts[0].toLowerCase();
+                    double amount = Double.parseDouble(parts[1]);
+                    
+                    if ("itemsadder".equals(type) && parts.length >= 3) {
+                        String item = parts[2];
+                        costs.add(new CostEntry(type, amount, item));
+                    } else {
+                        costs.add(new CostEntry(type, amount));
+                    }
+                }
+            } catch (NumberFormatException | ArrayIndexOutOfBoundsException e) {
+                plugin.getLogger().warning("无效的成本格式: " + costString);
+            }
+        }
+        return costs;
     }
 }
