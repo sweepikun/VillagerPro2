@@ -4,7 +4,14 @@ import cn.popcraft.villagerpro.commands.CommandManager;
 import cn.popcraft.villagerpro.database.DatabaseManager;
 import cn.popcraft.villagerpro.economy.EconomyManager;
 import cn.popcraft.villagerpro.events.EventManager;
-import cn.popcraft.villagerpro.managers.FollowManager;
+import cn.popcraft.villagerpro.managers.DefenseManager;
+import cn.popcraft.villagerpro.managers.DecorationManager;
+import cn.popcraft.villagerpro.managers.EcoChainManager;
+import cn.popcraft.villagerpro.managers.LegacyManager;
+import cn.popcraft.villagerpro.managers.PersonalityManager;
+import cn.popcraft.villagerpro.managers.VisitorManager;
+import cn.popcraft.villagerpro.managers.SimpleAllianceManager;
+import cn.popcraft.villagerpro.managers.SimpleAllianceGUIManager;
 import cn.popcraft.villagerpro.scheduler.WorkScheduler;
 import cn.popcraft.villagerpro.util.Messages;
 import net.milkbowl.vault.economy.Economy;
@@ -42,16 +49,60 @@ public class VillagerPro extends JavaPlugin {
         // 初始化工作调度器
         WorkScheduler.initialize();
         
-        getLogger().info("VillagerPro has been enabled!");
+        // 初始化访客系统
+        if (getConfig().getBoolean("features.visitors", true)) {
+            VisitorManager.getInstance().initialize();
+        }
+        
+        // 初始化村民个性系统
+        if (getConfig().getBoolean("features.personality", true)) {
+            PersonalityManager.getInstance();
+        }
+        
+        // 初始化装饰系统
+        if (getConfig().getBoolean("features.decorations", true)) {
+            DecorationManager.getInstance();
+        }
+        
+        // 初始化防御系统
+        if (getConfig().getBoolean("features.defense", true)) {
+            DefenseManager.getInstance();
+        }
+        
+        // 初始化生态联动系统
+        if (getConfig().getBoolean("features.eco_chain", true)) {
+            EcoChainManager.getInstance();
+        }
+        
+        // 初始化传承系统
+        if (getConfig().getBoolean("features.legacy", true)) {
+            LegacyManager.getInstance();
+        }
+        
+        // 初始化联盟系统
+        if (getConfig().getBoolean("features.alliance", false)) {
+            SimpleAllianceManager allianceManager = SimpleAllianceManager.getInstance();
+            allianceManager.initialize(this);
+            SimpleAllianceGUIManager allianceGUIManager = SimpleAllianceGUIManager.getInstance();
+            // GUIManager是静态类，不需要实例
+            allianceGUIManager.initialize(this, allianceManager, null);
+        }
+        
+        getLogger().info("VillagerPro 2.0 - 沉浸式村庄经营生态系统已启用！");
     }
     
     @Override
     public void onDisable() {
         // 停止所有跟随任务
-        FollowManager.shutdown();
+        // FollowManager.shutdown();
         
         // 关闭工作调度器
         WorkScheduler.shutdown();
+        
+        // 关闭访客系统
+        if (getConfig().getBoolean("features.visitors", true)) {
+            VisitorManager.getInstance().shutdown();
+        }
         
         // 关闭数据库连接池
         DatabaseManager.shutdown();

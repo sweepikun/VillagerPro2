@@ -37,25 +37,22 @@ village:
       costs:
         - type: "vault"
           amount: 800
-        - type: "itemsadder"
-          item: "villagerpro:village_token"
-          amount: 2
+        - type: "vault"
+          amount: 300
     - # 3 → 4
       costs:
         - type: "playerpoints"
           amount: 200
-        - type: "itemsadder"
-          item: "villagerpro:golden_seed"
-          amount: 5
+        - type: "vault"
+          amount: 400
     - # 4 → 5
       costs:
         - type: "vault"
           amount: 2000
         - type: "playerpoints"
           amount: 500
-        - type: "itemsadder"
-          item: "villagerpro:ancient_scroll"
-          amount: 1
+        - type: "playerpoints"
+          amount: 100
 
   # 基础村民数量上限（每级可额外增加，见 upgrade_skills）
   base_villager_limit: 3
@@ -91,9 +88,8 @@ village_upgrades:
       costs:
         - type: "vault"
           amount: 400
-        - type: "itemsadder"
-          item: "villagerpro:fishing_essence"
-          amount: 1
+        - type: "playerpoints"
+          amount: 150
 
     villager_capacity:
       name: "基建扩张"
@@ -119,9 +115,8 @@ village_upgrades:
       icon: TORCH
       max_level: 2
       costs:
-        - type: "itemsadder"
-          item: "villagerpro:ward_stone"
-          amount: 3
+        - type: "vault"
+          amount: 200
 
 # ==============================
 # 村民系统
@@ -134,9 +129,8 @@ villager:
   recruit_cost:
     - type: "vault"
       amount: 500
-    - type: "itemsadder"
-      item: "villagerpro:recruit_scroll"
-      amount: 1
+    - type: "vault"
+      amount: 100
 
   # 工作间隔（ticks，默认 2400 = 2分钟）
   work_interval_ticks: 2400
@@ -221,9 +215,88 @@ villager_upgrades:
       icon: HEART_OF_THE_SEA
       max_level: 2
       costs:
-        - type: "itemsadder"
-          item: "villagerpro:treasure_map"
-          amount: 2
+        - type: "playerpoints"
+          amount: 60
+
+  shepherd:
+    - id: efficient_shearing
+      name: "高效剪毛"
+      description: "每次多收1个羊毛"
+      icon: SHEARS
+      max_level: 5
+      cost_multiplier: 1.4
+      costs:
+        - type: "vault"
+          amount: 200
+
+    - id: wool_expert
+      name: "羊毛专家"
+      description: "多色羊毛产出"
+      icon: RAINBOW_WOOL
+      max_level: 3
+      costs:
+        - type: "playerpoints"
+          amount: 50
+
+  priest:
+    - id: potion_master
+      name: "药剂大师"
+      description: "每次多产1瓶药剂"
+      icon: BREWING_STAND
+      max_level: 4
+      cost_multiplier: 1.5
+      costs:
+        - type: "vault"
+          amount: 300
+
+    - id: health_boost
+      name: "生命祝福"
+      description: "村庄居民生命值+1"
+      icon: HEART
+      max_level: 2
+      costs:
+        - type: "vault"
+          amount: 400
+
+  librarian:
+    - id: enchantment_expert
+      name: "附魔专家"
+      description: "提供更高级的附魔服务"
+      icon: ENCHANTING_TABLE
+      max_level: 3
+      cost_multiplier: 1.6
+      costs:
+        - type: "playerpoints"
+          amount: 80
+
+    - id: knowledge_bonus
+      name: "知识加成"
+      description: "所有村民经验获取+10%"
+      icon: BOOKSHELF
+      max_level: 2
+      costs:
+        - type: "playerpoints"
+          amount: 150
+
+  cartographer:
+    - id: map_expert
+      name: "制图专家"
+      description: "每天多产1张地图"
+      icon: MAP
+      max_level: 3
+      cost_multiplier: 1.5
+      costs:
+        - type: "vault"
+          amount: 250
+
+    - id: treasure_map
+      name: "藏宝图"
+      description: "提供特殊藏宝图"
+      icon: TREASURE_MAP
+      max_level: 2
+      costs:
+        - type: "vault"
+          amount: 350
 
 # ==============================
 # GUI 配置
@@ -242,6 +315,347 @@ gui:
   back_button:
     material: RED_CONCRETE
     name: "§c返回"
+
+# ==============================
+# 访客系统配置
+# ==============================
+visitors:
+  # 是否启用访客系统
+  enabled: true
+  
+  # 访客生成检查间隔（游戏时间tick，24000=24分钟）
+  check_interval_ticks: 24000
+  
+  # 繁荣度阈值（需要达到此值才能生成访客）
+  prosperity_threshold: 100
+  
+  # 访客停留时间（分钟）
+  stay_duration_minutes: 10
+  
+  # 生成概率（0.0-1.0）
+  spawn_probability: 0.3
+
+  # 商人配置
+  merchant:
+    enabled: true
+    # 商人出售的物品
+    items:
+      - item: "villagerpro:village_token"
+        price:
+          - type: "vault"
+            amount: 500
+        name: "村庄令牌"
+        description: "村庄升级材料"
+        rarity: "rare"
+        
+      - item: "villagerpro:golden_seed"
+        price:
+          - type: "playerpoints"
+            amount: 100
+        name: "金色种子"
+        description: "提升农民效率"
+        rarity: "epic"
+        
+      - item: WHEAT_SEEDS
+        price:
+          - type: "vault"
+            amount: 50
+        name: "优质种子"
+        description: "农民专属种子"
+        rarity: "common"
+
+  # 旅行者配置
+  traveler:
+    enabled: true
+    # 旅行者提供的委托
+    deals:
+      - name: "南瓜收集"
+        description: "帮我收集5个南瓜"
+        item: "PUMPKIN"
+        amount: 5
+        reward:
+          item: "JACK_O_LANTERN"
+          amount: 1
+        name: "收获南瓜"
+        
+      - name: "羊毛收集"
+        description: "我需要10块白色羊毛"
+        item: "WHITE_WOOL"
+        amount: 10
+        reward:
+          item: "WHITE_WOOL"
+          amount: 5
+        name: "织布需求"
+        
+      - name: "鱼类供应"
+        description: "给我3条鲑鱼"
+        item: "SALMON"
+        amount: 3
+        reward:
+          item: "PLAYER_HEAD"
+          amount: 1
+          name: "传说钓鱼者头像"
+        name: "美食需求"
+
+  # 节日使者配置
+  festival:
+    enabled: true
+    # 节日名称（可添加更多节日）
+    festivals:
+      harvest:
+        name: "丰收节"
+        description: "秋季庆典，所有产出+50%"
+        duration_hours: 48
+        effect:
+          production_boost: 1.5
+          item: "PUMPKIN"
+          amount: 10
+          
+      winter:
+        name: "冬季节"
+        description: "冬季温暖，抵御寒冷"
+        duration_hours: 72
+        effect:
+          cold_resistance: true
+          item: "POTION"
+          amount: 1
+
+# ==============================
+# 村民个性与成长系统
+# ==============================
+personality:
+  # 是否启用个性系统
+  enabled: true
+  
+  # 忠诚度配置
+  loyalty:
+    # 基础忠诚度
+    base_loyalty: 50
+    # 最高忠诚度
+    max_loyalty: 100
+    # 离开村庄的忠诚度阈值
+    leave_threshold: 20
+    
+  # 情绪配置
+  mood:
+    # 基础情绪值
+    base_mood: 70
+    # 最高情绪值
+    max_mood: 100
+    
+  # 互动奖励
+  interactions:
+    # 送礼影响
+    gift_boost: 10
+    # 保护村民奖励
+    protection_reward: 5
+    # 村庄升级奖励
+    level_up_reward: 15
+
+# ==============================
+# 村庄装饰系统
+# ==============================
+decorations:
+  # 是否启用装饰系统
+  enabled: true
+  
+  # 装饰物品配置
+  items:
+    street_light:
+      name: "路灯"
+      description: "照亮村庄夜晚"
+      material: TORCH
+      cost:
+        - type: "vault"
+          amount: 100
+        - type: "itemsadder"
+          item: "villagerpro:glass_cylinder"
+          amount: 2
+      prosperity_boost: 5
+      world_interaction: true
+      
+    flower_bed:
+      name: "花坛"
+      description: "美化村庄环境"
+      material: POPPY
+      cost:
+        - type: "itemsadder"
+          item: "FLOWER_POT"
+          amount: 1
+        - type: "vault"
+          amount: 50
+      prosperity_boost: 3
+      villager_interaction: true
+      
+    bench:
+      name: "长椅"
+      description: "村民休息场所"
+      material: OAK_STAIRS
+      cost:
+        - type: "vault"
+          amount: 200
+      prosperity_boost: 4
+      villager_sit: true
+
+# ==============================
+# 防御机制系统
+# ==============================
+defense:
+  # 是否启用防御系统
+  enabled: true
+  
+  # 守卫配置
+  guard:
+    # 村庄等级解锁要求
+    level_requirement: 3
+    # 守卫持续时间（分钟）
+    duration_minutes: 5
+    # 召唤成本
+    cost:
+      - type: "vault"
+        amount: 200
+      - type: "itemsadder"
+        item: "villagerpro:guard_token"
+        amount: 1
+        
+  # 避难所配置
+    shelter:
+      # 夜晚避难所
+      auto_shelter:
+        enabled: true
+        trigger_world_time: 13000  # 夜晚时间
+        
+  # 村庄守护效果
+  protection:
+    # 怪物生成减少（百分比）
+    monster_reduction: 10
+    # 村民受到攻击时的保护
+    villager_protection: true
+
+# ==============================
+# 村庄联盟系统
+# ==============================
+alliance:
+  # 是否启用联盟系统（默认关闭）
+  enabled: false
+  
+  # 联盟配置
+  config:
+    # 最多成员数
+    max_members: 5
+    # 最低村庄等级要求
+    min_village_level: 2
+    
+  # 共享资源
+  sharing:
+    # 是否共享仓库
+    warehouse_sharing: true
+    # 共享比例（百分比）
+    sharing_percentage: 20
+    
+  # 联盟升级
+    alliance_boosts:
+      # 联盟守护（减少怪物生成）
+      regional_guard:
+        level_requirement: 3
+        monster_reduction: 15
+        cost:
+          - type: "vault"
+            amount: 1000
+
+# ==============================
+# 生态联动系统
+# ==============================
+eco_chain:
+  # 是否启用生态联动
+  enabled: true
+  
+  # 职业协作链配置
+  profession_chains:
+    # 农业链：农民 → 面包师
+    bread_chain:
+      enabled: true
+      chain:
+        - profession: "farmer"
+          produces: "WHEAT"
+        - profession: "baker"
+          consumes: "WHEAT"
+          produces: "BREAD"
+          ratio: 3  # 3小麦 -> 1面包
+          
+    # 畜牧业链：牧羊人 → 织布工
+    wool_chain:
+      enabled: true
+      chain:
+        - profession: "shepherd"
+          produces: "WHITE_WOOL"
+        - profession: "weaver"
+          consumes: "WHITE_WOOL"
+          produces: "WHITE_WOOL"
+          ratio: 5  # 5羊毛 -> 1地毯
+          
+  # 工作站识别（轻量版本）
+  workstation_detection:
+    enabled: true
+    # 效率加成（百分比）
+    efficiency_boost: 20
+    # 识别范围（方块）
+    detection_range: 3
+    
+  # 新职业配置
+  new_professions:
+    baker:
+      name: "面包师"
+      icon: BREAD
+      requires: "farmer"  # 需要农民作为前置
+      work_interval_ticks: 1200
+      produces: "BREAD"
+      efficiency: 0.8
+      
+    weaver:
+      name: "织布工"
+      icon: "WHITE_WOOL"
+      requires: "shepherd"  # 需要牧羊人作为前置
+      work_interval_ticks: 1800
+      produces: "WHITE_WOOL"
+      efficiency: 0.6
+
+# ==============================
+# 传承系统
+# ==============================
+legacy:
+  # 是否启用传承系统
+  enabled: true
+  
+  # 传承配置
+  config:
+    # 传承所需等级
+    min_level: 5
+    # 技能继承比例
+    skill_inheritance_percentage: 50
+    # 传承材料
+    scroll_item: "ENCHANTED_BOOK"
+    scroll_cost: 1
+    
+  # 传承效果
+  effects:
+    # 提升村庄声望
+    village_fame_boost: 25
+    # 解锁特殊村民
+    unlock_special_villagers: true
+
+# ==============================
+# 玩法模块开关
+# ==============================
+features:
+  # 核心玩法模块
+  eco_chain: true          # 生态联动
+  visitors: true           # 访客系统
+  personality: true        # 村民个性
+  decorations: true        # 村庄装饰
+  defense: true            # 防御机制
+  legacy: true             # 传承系统
+  alliance: false          # 联盟系统（默认关闭）
 
 # ==============================
 # 兼容性设置

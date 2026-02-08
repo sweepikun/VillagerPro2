@@ -15,7 +15,14 @@ public class EventManager implements Listener {
         VillagerPro.getInstance().getServer().getPluginManager().registerEvents(new GUIListener(), VillagerPro.getInstance());
         
         // 注册村民事件监听器
-        VillagerPro.getInstance().getServer().getPluginManager().registerEvents(new VillagerListener(), VillagerPro.getInstance());
+        if (VillagerPro.getInstance().getConfig().getBoolean("features.personality", true)) {
+            VillagerPro.getInstance().getServer().getPluginManager().registerEvents(new VillagerListener(), VillagerPro.getInstance());
+        }
+        
+        // 注册访客事件监听器
+        if (VillagerPro.getInstance().getConfig().getBoolean("features.visitors", true)) {
+            VillagerPro.getInstance().getServer().getPluginManager().registerEvents(new VisitorListener(), VillagerPro.getInstance());
+        }
         
         // 注册事件管理器本身以监听玩家加入事件
         VillagerPro.getInstance().getServer().getPluginManager().registerEvents(new EventManager(), VillagerPro.getInstance());

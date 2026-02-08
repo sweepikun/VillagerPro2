@@ -6,6 +6,7 @@ import cn.popcraft.villagerpro.managers.VillageUpgradeManager;
 import cn.popcraft.villagerpro.managers.VillagerManager;
 import cn.popcraft.villagerpro.managers.VillagerUpgradeManager;
 import cn.popcraft.villagerpro.managers.WarehouseManager;
+import cn.popcraft.villagerpro.scheduler.WorkScheduler;
 import cn.popcraft.villagerpro.models.Village;
 import cn.popcraft.villagerpro.models.VillagerData;
 import org.bukkit.Bukkit;
@@ -97,6 +98,19 @@ public class GUIManager {
         recruitButton.setItemMeta(recruitMeta);
         gui.setItem(16, recruitButton);
         
+        // 联盟按钮（如果联盟功能启用）
+        if (VillagerPro.getInstance().getConfig().getBoolean("features.alliance", false)) {
+            ItemStack allianceButton = new ItemStack(Material.GOLD_BLOCK);
+            ItemMeta allianceMeta = allianceButton.getItemMeta();
+            allianceMeta.setDisplayName("§e联盟管理");
+            List<String> allianceLore = new java.util.ArrayList<>();
+            allianceLore.add("§7管理村庄联盟");
+            allianceLore.add("§7与其他村庄合作");
+            allianceMeta.setLore(allianceLore);
+            allianceButton.setItemMeta(allianceMeta);
+            gui.setItem(14, allianceButton);
+        }
+        
         // 关闭按钮
         ItemStack closeButton = new ItemStack(Material.BARRIER);
         ItemMeta closeMeta = closeButton.getItemMeta();
@@ -113,6 +127,15 @@ public class GUIManager {
      * @param player 玩家
      */
     public static void openVillagerListGUI(Player player) {
+        openVillagerListGUI(player, 1); // 默认显示第1页
+    }
+    
+    /**
+     * 打开村民列表界面（分页版本）
+     * @param player 玩家
+     * @param page 页码（从1开始）
+     */
+    public static void openVillagerListGUI(Player player, int page) {
         Village village = VillageManager.getVillage(player.getUniqueId());
         if (village == null) {
             player.sendMessage("§c你还没有创建村庄！");
@@ -120,15 +143,33 @@ public class GUIManager {
         }
         
         List<VillagerData> villagers = VillagerManager.getVillagers(village.getId());
+        if (villagers.isEmpty()) {
+            player.sendMessage("§7你还没有招募任何村民！");
+            return;
+        }
         
-        // 创建GUI (根据村民数量调整大小，最大54个格子)
-        int size = Math.min(((villagers.size() / 9) + 1) * 9, 54);
-        size = Math.max(size, 9); // 至少1行
+        // 分页设置
+        int VILLAGERS_PER_PAGE = 36; // 每页最多显示36个村民（4行×9列）
+        int NAVIGATION_ROWS = 2; // 底部保留2行用于导航
         
-        Inventory gui = Bukkit.createInventory(null, size, GUI_PREFIX + "村民列表");
+        // 计算总页数
+        int totalPages = (villagers.size() + VILLAGERS_PER_PAGE - 1) / VILLAGERS_PER_PAGE;
         
-        // 显示村民
-        for (int i = 0; i < villagers.size() && i < size - 9; i++) {
+        // 修正页码
+        if (page < 1) page = 1;
+        if (page > totalPages) page = totalPages;
+        
+        // 计算当前页的村民范围
+        int startIndex = (page - 1) * VILLAGERS_PER_PAGE;
+        int endIndex = Math.min(startIndex + VILLAGERS_PER_PAGE, villagers.size());
+        
+        // 创建固定大小的GUI（54格，6行）
+        int size = 54;
+        Inventory gui = Bukkit.createInventory(null, size, GUI_PREFIX + "村民列表 §7(第" + page + "页/共" + totalPages + "页)");
+        
+        // 显示当前页的村民
+        for (int i = startIndex; i < endIndex; i++) {
+            int slotIndex = i - startIndex; // 在当前页中的位置 (0-35)
             VillagerData villager = villagers.get(i);
             
             Material iconMaterial = getProfessionIcon(villager.getProfession());
@@ -140,13 +181,21 @@ public class GUIManager {
             lore.add("§7等级: §e" + villager.getLevel());
             lore.add("§7经验: §e" + villager.getExperience());
             lore.add("§7跟随模式: §e" + villager.getFollowMode());
+            
+            // 添加产出倒计时
+            long remainingTime = WorkScheduler.getRemainingWorkTime(villager.getId());
+            if (remainingTime <= 0) {
+                lore.add("§a下次产出: 准备就绪!");
+            } else {
+                lore.add("§6下次产出: §e" + formatTime(remainingTime));
+            }
             lore.add("");
             lore.add("§e左键§7查看详情");
             lore.add("§e右键§7升级");
             meta.setLore(lore);
             
             villagerItem.setItemMeta(meta);
-            gui.setItem(i, villagerItem);
+            gui.setItem(slotIndex, villagerItem);
         }
         
         // 填充背景玻璃板
@@ -155,23 +204,65 @@ public class GUIManager {
         backgroundMeta.setDisplayName(" ");
         background.setItemMeta(backgroundMeta);
         
-        for (int i = Math.max(0, villagers.size()); i < size - 9; i++) {
-            gui.setItem(i, background);
+        // 填充空位
+        for (int i = 0; i < size - 18; i++) { // 保留最后2行(18格)给导航按钮
+            if (gui.getItem(i) == null) {
+                gui.setItem(i, background);
+            }
         }
         
-        // 返回按钮
+        // 导航按钮（第5行，第17-20格）
+        if (page > 1) {
+            // 上一页按钮
+            ItemStack prevButton = new ItemStack(Material.ARROW);
+            ItemMeta prevMeta = prevButton.getItemMeta();
+            prevMeta.setDisplayName("§a上一页");
+            List<String> prevLore = new java.util.ArrayList<>();
+            prevLore.add("§7当前页: §e" + page + "§7/§e" + totalPages);
+            prevLore.add("§7点击返回上一页");
+            prevMeta.setLore(prevLore);
+            prevButton.setItemMeta(prevMeta);
+            gui.setItem(36, prevButton); // 第5行第1格
+        }
+        
+        if (page < totalPages) {
+            // 下一页按钮
+            ItemStack nextButton = new ItemStack(Material.ARROW);
+            ItemMeta nextMeta = nextButton.getItemMeta();
+            nextMeta.setDisplayName("§a下一页");
+            List<String> nextLore = new java.util.ArrayList<>();
+            nextLore.add("§7当前页: §e" + page + "§7/§e" + totalPages);
+            nextLore.add("§7点击查看下一页");
+            nextMeta.setLore(nextLore);
+            nextButton.setItemMeta(nextMeta);
+            gui.setItem(44, nextButton); // 第5行第9格（从0开始计数，所以是第44格）
+        }
+        
+        // 页面信息显示
+        ItemStack pageInfo = new ItemStack(Material.BOOK);
+        ItemMeta pageInfoMeta = pageInfo.getItemMeta();
+        pageInfoMeta.setDisplayName("§6页面信息");
+        List<String> pageInfoLore = new java.util.ArrayList<>();
+        pageInfoLore.add("§7村民总数: §e" + villagers.size());
+        pageInfoLore.add("§7当前页: §e" + page + "§7/§e" + totalPages);
+        pageInfoLore.add("§7本页显示: §e" + (endIndex - startIndex) + "§7个村民");
+        pageInfoMeta.setLore(pageInfoLore);
+        pageInfo.setItemMeta(pageInfoMeta);
+        gui.setItem(40, pageInfo); // 第5行中间
+        
+        // 返回按钮（第6行）
         ItemStack backButton = new ItemStack(Material.ARROW);
         ItemMeta backMeta = backButton.getItemMeta();
-        backMeta.setDisplayName("§c返回");
+        backMeta.setDisplayName("§c返回村庄");
         backButton.setItemMeta(backMeta);
-        gui.setItem(size - 9, backButton);
+        gui.setItem(45, backButton); // 第6行第2格
         
-        // 关闭按钮
+        // 关闭按钮（第6行）
         ItemStack closeButton = new ItemStack(Material.BARRIER);
         ItemMeta closeMeta = closeButton.getItemMeta();
         closeMeta.setDisplayName("§c关闭");
         closeButton.setItemMeta(closeMeta);
-        gui.setItem(size - 1, closeButton);
+        gui.setItem(53, closeButton); // 第6行第9格
         
         player.openInventory(gui);
     }
@@ -280,9 +371,11 @@ public class GUIManager {
         
         // 获取该职业可用的技能
         String profession = villager.getProfession();
-        if (VillagerPro.getInstance().getConfig().contains("villager_upgrades." + profession)) {
+        String upgradePath = "villager_upgrades." + profession;
+        if (VillagerPro.getInstance().getConfig().contains(upgradePath) && 
+            VillagerPro.getInstance().getConfig().getConfigurationSection(upgradePath) != null) {
             Set<String> skills = VillagerPro.getInstance().getConfig()
-                    .getConfigurationSection("villager_upgrades." + profession).getKeys(false);
+                    .getConfigurationSection(upgradePath).getKeys(false);
             
             int slot = 10; // 起始槽位
             for (String skillId : skills) {
@@ -304,6 +397,7 @@ public class GUIManager {
                 int currentLevel = VillagerUpgradeManager.getVillagerSkillLevel(villagerId, skillId);
                 int maxLevel = VillagerUpgradeManager.getSkillMaxLevel(profession, skillId);
                 lore.add("§7等级: §e" + currentLevel + "/" + maxLevel);
+                lore.add("§7技能ID: §e" + skillId); // 添加技能ID用于后续处理
                 
                 // 显示成本
                 lore.add("");
@@ -660,6 +754,29 @@ public class GUIManager {
             cn.popcraft.villagerpro.managers.VillageUpgradeManager.getUpgradeCosts(upgradeId);
         lore.addAll(cn.popcraft.villagerpro.economy.CostHandler.getDisplayLore(costs));
         return lore;
+    }
+    
+    /**
+     * 格式化时间显示
+     * @param millis 毫秒数
+     * @return 格式化的时间字符串
+     */
+    private static String formatTime(long millis) {
+        if (millis <= 0) {
+            return "准备就绪";
+        }
+        
+        long seconds = millis / 1000;
+        long minutes = seconds / 60;
+        long hours = minutes / 60;
+        
+        if (hours > 0) {
+            return String.format("%d时%d分%d秒", hours, minutes % 60, seconds % 60);
+        } else if (minutes > 0) {
+            return String.format("%d分%d秒", minutes, seconds % 60);
+        } else {
+            return String.format("%d秒", seconds);
+        }
     }
     
     /**
