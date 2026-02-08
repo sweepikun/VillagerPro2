@@ -1,7 +1,7 @@
 package cn.popcraft.villagerpro.events;
 
 import cn.popcraft.villagerpro.VillagerPro;
-import cn.popcraft.villagerpro.managers.FollowManager;
+// import cn.popcraft.villagerpro.managers.FollowManager; // 临时禁用跟随功能
 import cn.popcraft.villagerpro.managers.VillagerManager;
 import cn.popcraft.villagerpro.models.VillagerData;
 import org.bukkit.entity.Entity;
@@ -39,8 +39,8 @@ public class VillagerListener implements Listener {
         // 检查是否是我们管理的村民
         VillagerData villagerData = VillagerManager.getVillager(entity.getUniqueId());
         if (villagerData != null) {
-            // 切换跟随模式
-            FollowManager.toggleFollowMode(villagerData);
+            // 切换跟随模式 - 功能临时禁用
+            // FollowManager.toggleFollowMode(villagerData);
             event.setCancelled(true);
         }
     }

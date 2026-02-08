@@ -7,9 +7,42 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 public class VillageManager {
+    
+    /**
+     * 获取所有村庄
+     * @return 村庄列表
+     */
+    public static List<Village> getAllVillages() {
+        List<Village> villages = new ArrayList<>();
+        
+        try (Connection connection = DatabaseManager.getConnection();
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT id, owner_uuid, name, level, experience, prosperity FROM villages")) {
+            
+            ResultSet resultSet = statement.executeQuery();
+            
+            while (resultSet.next()) {
+                Village village = new Village(
+                        resultSet.getInt("id"),
+                        UUID.fromString(resultSet.getString("owner_uuid")),
+                        resultSet.getString("name"),
+                        resultSet.getInt("level"),
+                        resultSet.getInt("experience"),
+                        resultSet.getInt("prosperity")
+                );
+                villages.add(village);
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+        
+        return villages;
+    }
     
     /**
      * 获取玩家的村庄

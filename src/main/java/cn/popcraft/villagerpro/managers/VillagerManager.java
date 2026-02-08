@@ -146,12 +146,15 @@ public class VillagerManager {
         // 执行招募
         try (Connection connection = DatabaseManager.getConnection();
              PreparedStatement statement = connection.prepareStatement(
-                     "INSERT INTO villagers (village_id, entity_uuid, profession) VALUES (?, ?, ?)",
+                     "INSERT INTO villagers (village_id, entity_uuid, profession, level, experience, follow_mode) VALUES (?, ?, ?, ?, ?, ?)",
                      PreparedStatement.RETURN_GENERATED_KEYS)) {
             
             statement.setInt(1, village.getId());
             statement.setString(2, entityUUID.toString());
             statement.setString(3, profession);
+            statement.setInt(4, 1); // 默认等级
+            statement.setInt(5, 0); // 默认经验
+            statement.setString(6, "FREE"); // 默认跟随模式
             
             int affectedRows = statement.executeUpdate();
             
