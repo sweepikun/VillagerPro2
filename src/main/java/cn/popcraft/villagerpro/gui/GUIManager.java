@@ -16,11 +16,31 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class GUIManager {
     private static final String GUI_PREFIX = VillagerPro.getInstance().getConfig().getString("gui.title_prefix", "§f[VP] ");
+    
+    private static final Map<Player, Integer> currentViewingVillagerId = new HashMap<>();
+    
+    public static String getGUIPrefix() {
+        return GUI_PREFIX;
+    }
+    
+    public static void setCurrentVillagerId(Player player, int villagerId) {
+        currentViewingVillagerId.put(player, villagerId);
+    }
+    
+    public static Integer getCurrentVillagerId(Player player) {
+        return currentViewingVillagerId.get(player);
+    }
+    
+    public static void removeCurrentVillagerId(Player player) {
+        currentViewingVillagerId.remove(player);
+    }
     
     /**
      * 打开村庄主界面
@@ -273,6 +293,8 @@ public class GUIManager {
      * @param villagerId 村民ID
      */
     public static void openVillagerInfoGUI(Player player, int villagerId) {
+        setCurrentVillagerId(player, villagerId);
+        
         VillagerData villager = null;
         Village village = VillageManager.getVillage(player.getUniqueId());
         if (village != null) {
@@ -287,6 +309,7 @@ public class GUIManager {
         
         if (villager == null) {
             player.sendMessage("§c找不到该村民！");
+            removeCurrentVillagerId(player);
             return;
         }
         
@@ -668,6 +691,10 @@ public class GUIManager {
             List<cn.popcraft.villagerpro.economy.CostEntry> costs = 
                 VillageUpgradeManager.getUpgradeCosts(upgradeId);
             lore.addAll(cn.popcraft.villagerpro.economy.CostHandler.getDisplayLore(costs));
+            
+            // 添加升级ID用于后续处理
+            lore.add("");
+            lore.add("§8ID: " + upgradeId);
             
             meta.setLore(lore);
             upgradeItem.setItemMeta(meta);
