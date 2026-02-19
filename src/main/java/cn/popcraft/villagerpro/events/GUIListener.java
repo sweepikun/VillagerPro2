@@ -37,9 +37,6 @@ import org.bukkit.event.player.PlayerQuitEvent;
 
 public class GUIListener implements Listener {
     
-    // 存储当前GUI中的村民ID，用于在GUI操作中传递
-    private static Map<Player, Integer> currentVillagerId = new HashMap<>();
-    
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
         if (event.getWhoClicked() instanceof Player) {
@@ -48,40 +45,42 @@ public class GUIListener implements Listener {
             
             // 检查是否是我们的GUI
             String inventoryTitle = event.getView().getTitle();
-            if (!inventoryTitle.startsWith("§f[VP] ")) {
+            String guiPrefix = GUIManager.getGUIPrefix();
+            if (!inventoryTitle.startsWith(guiPrefix)) {
                 return;
             }
             
             event.setCancelled(true);
             
-            // 获取点击的物品
+            // 获取点击的物品和槽位
             ItemStack clickedItem = event.getCurrentItem();
+            int slot = event.getSlot();
             if (clickedItem == null || clickedItem.getType() == Material.AIR) {
                 return;
             }
             
             // 根据GUI类型处理点击事件
-            if (inventoryTitle.equals("§f[VP] 村庄信息")) {
+            if (inventoryTitle.equals(guiPrefix + "村庄信息")) {
                 handleVillageGUI(player, clickedItem);
-            } else if (inventoryTitle.startsWith("§f[VP] 村民列表")) {
+            } else if (inventoryTitle.startsWith(guiPrefix + "村民列表")) {
                 handleVillagerListGUI(player, clickedItem, inventory, event);
-            } else if (inventoryTitle.equals("§f[VP] 村民详情")) {
+            } else if (inventoryTitle.equals(guiPrefix + "村民详情")) {
                 handleVillagerInfoGUI(player, clickedItem);
-            } else if (inventoryTitle.equals("§f[VP] 村民升级")) {
+            } else if (inventoryTitle.equals(guiPrefix + "村民升级")) {
                 handleVillagerUpgradeGUI(player, clickedItem);
-            } else if (inventoryTitle.equals("§f[VP] 村庄仓库")) {
-                handleWarehouseGUI(player, clickedItem);
-            } else if (inventoryTitle.equals("§f[VP] 招募村民")) {
+            } else if (inventoryTitle.equals(guiPrefix + "村庄仓库")) {
+                handleWarehouseGUI(player, clickedItem, event.getClick());
+            } else if (inventoryTitle.equals(guiPrefix + "招募村民")) {
                 handleRecruitGUI(player, clickedItem);
-            } else if (inventoryTitle.equals("§f[VP] 村庄升级")) {
+            } else if (inventoryTitle.equals(guiPrefix + "村庄升级")) {
                 handleVillageUpgradeGUI(player, clickedItem);
             } else if (inventoryTitle.contains("村庄装饰商店") || inventoryTitle.contains("装饰管理")) {
-                handleDecorationGUI(player, clickedItem);
+                handleDecorationGUI(player, clickedItem, slot);
             } else if (inventoryTitle.contains("[商人]") || inventoryTitle.contains("[旅行者]") || inventoryTitle.contains("[节日使者]")) {
-                handleVisitorGUI(player, clickedItem);
+                handleVisitorGUI(player, clickedItem, slot);
             } else if (inventoryTitle.contains("村庄联盟") || inventoryTitle.contains("创建联盟") || inventoryTitle.contains("联盟列表") || inventoryTitle.contains("联盟信息")) {
                 SimpleAllianceGUIManager.handleAllianceGUIClick(player, clickedItem);
-            } else if (inventoryTitle.equals("§f[VP] 消耗物品确认")) {
+            } else if (inventoryTitle.equals(guiPrefix + "消耗物品确认")) {
                 handleCostConfirmationGUI(player, clickedItem);
             }
         }
@@ -90,7 +89,7 @@ public class GUIListener implements Listener {
     @EventHandler
     public void onPlayerQuit(PlayerQuitEvent event) {
         // 清理玩家数据
-        currentVillagerId.remove(event.getPlayer());
+        GUIManager.removeCurrentVillagerId(event.getPlayer());
     }
     
     @EventHandler
@@ -155,8 +154,7 @@ public class GUIListener implements Listener {
                 String idStr = displayName.substring(displayName.indexOf("(ID: ") + 5, displayName.lastIndexOf(")"));
                 try {
                     int villagerId = Integer.parseInt(idStr);
-                    // 存储当前村民ID供后续操作使用
-                    currentVillagerId.put(player, villagerId);
+                    // GUIManager.openVillagerInfoGUI 内部会自动存储 villagerId
                     GUIManager.openVillagerInfoGUI(player, villagerId);
                 } catch (NumberFormatException e) {
                     player.sendMessage("§c无效的村民ID！");
@@ -197,7 +195,7 @@ public class GUIListener implements Listener {
     
     private void handleVillagerInfoGUI(Player player, ItemStack clickedItem) {
         // 获取当前GUI中的村民ID
-        Integer villagerId = currentVillagerId.get(player);
+        Integer villagerId = GUIManager.getCurrentVillagerId(player);
         if (villagerId == null) {
             player.sendMessage("§c村民信息异常！");
             return;
@@ -249,7 +247,7 @@ public class GUIListener implements Listener {
     
     private void handleVillagerUpgradeGUI(Player player, ItemStack clickedItem) {
         // 获取当前GUI中的村民ID
-        Integer villagerId = currentVillagerId.get(player);
+        Integer villagerId = GUIManager.getCurrentVillagerId(player);
         if (villagerId == null) {
             player.sendMessage("§c村民信息异常！");
             player.closeInventory();
@@ -320,26 +318,35 @@ public class GUIListener implements Listener {
             } else if (displayName.equals("§c关闭")) {
                 player.closeInventory();
                 // 清理存储的村民ID
-                currentVillagerId.remove(player);
+                GUIManager.removeCurrentVillagerId(player);
             }
         }
     }
     
-    private void handleWarehouseGUI(Player player, ItemStack clickedItem) {
+    private void handleWarehouseGUI(Player player, ItemStack clickedItem, org.bukkit.event.inventory.ClickType clickType) {
         ItemMeta meta = clickedItem.getItemMeta();
         if (meta != null && meta.hasDisplayName()) {
             String displayName = meta.getDisplayName();
             
             // 检查是否是仓库物品
             if (displayName.startsWith("§e")) {
-                // 提取物品类型
-                String itemType = displayName.substring(2); // 移除颜色代码
+                // 提取物品类型（移除颜色代码 §e）
+                String itemType = displayName.substring(2).trim();
                 
                 Village village = VillageManager.getVillage(player.getUniqueId());
                 if (village != null) {
-                    // 检查点击的是左键还是右键
-                    // 这里简化处理，实际应该根据点击类型执行不同操作
-                    player.sendMessage("§a你点击了物品: " + itemType);
+                    // 左键提取全部，右键提取一组(64)
+                    if (clickType == org.bukkit.event.inventory.ClickType.LEFT) {
+                        // 提取全部
+                        cn.popcraft.villagerpro.managers.WarehouseManager.extractAllItem(player, village.getId(), itemType);
+                        // 刷新GUI
+                        GUIManager.openWarehouseGUI(player);
+                    } else if (clickType == org.bukkit.event.inventory.ClickType.RIGHT) {
+                        // 提取一组（64个）
+                        cn.popcraft.villagerpro.managers.WarehouseManager.extractItem(player, village.getId(), itemType, 64);
+                        // 刷新GUI
+                        GUIManager.openWarehouseGUI(player);
+                    }
                 }
             } else if (displayName.equals("§c返回")) {
                 GUIManager.openVillageGUI(player);
@@ -385,9 +392,26 @@ public class GUIListener implements Listener {
             
             // 检查是否是升级选项
             if (displayName.startsWith("§e")) {
-                // 获取升级ID
-                // 这里简化处理，实际应该通过更好的方式映射显示名称到升级ID
-                String upgradeId = "villager_capacity"; // 示例升级ID
+                // 从lore中获取升级ID
+                String upgradeId = null;
+                if (meta.hasLore() && meta.getLore() != null) {
+                    for (String loreLine : meta.getLore()) {
+                        if (loreLine.startsWith("§8ID: ")) {
+                            upgradeId = loreLine.substring(6);
+                            break;
+                        }
+                    }
+                }
+                
+                // 如果lore中没有升级ID，通过显示名称查找
+                if (upgradeId == null) {
+                    upgradeId = findUpgradeIdByDisplayName(displayName);
+                }
+                
+                if (upgradeId == null) {
+                    player.sendMessage("§c无法识别升级项目！");
+                    return;
+                }
                 
                 Village village = VillageManager.getVillage(player.getUniqueId());
                 if (village != null) {
@@ -512,12 +536,43 @@ public class GUIListener implements Listener {
     }
     
     /**
+     * 根据显示名称查找升级ID
+     * @param displayName 显示名称
+     * @return 升级ID，如果没有找到则返回null
+     */
+    private String findUpgradeIdByDisplayName(String displayName) {
+        String path = "village_upgrades.available_upgrades";
+        if (!cn.popcraft.villagerpro.VillagerPro.getInstance().getConfig().contains(path)) {
+            return null;
+        }
+        
+        // 移除颜色代码
+        String cleanDisplayName = displayName.replace("§e", "").trim();
+        
+        org.bukkit.configuration.ConfigurationSection section = 
+            cn.popcraft.villagerpro.VillagerPro.getInstance().getConfig().getConfigurationSection(path);
+        if (section == null) {
+            return null;
+        }
+        
+        for (String upgradeId : section.getKeys(false)) {
+            String upgradeName = cn.popcraft.villagerpro.VillagerPro.getInstance().getConfig()
+                .getString(path + "." + upgradeId + ".name", "");
+            if (cleanDisplayName.equals(upgradeName)) {
+                return upgradeId;
+            }
+        }
+        
+        return null;
+    }
+    
+    /**
      * 处理装饰GUI点击
      */
-    private void handleDecorationGUI(Player player, ItemStack clickedItem) {
+    private void handleDecorationGUI(Player player, ItemStack clickedItem, int slot) {
         // 委托给装饰GUI管理器处理
         try {
-            cn.popcraft.villagerpro.gui.DecorationGUIManager.handleGUIClick(player, 0, clickedItem);
+            cn.popcraft.villagerpro.gui.DecorationGUIManager.handleGUIClick(player, slot, clickedItem);
         } catch (Exception e) {
             VillagerPro.getInstance().getLogger().warning("装饰GUI处理失败: " + e.getMessage());
             player.sendMessage("§c装饰功能暂时不可用，请重试");
@@ -527,10 +582,10 @@ public class GUIListener implements Listener {
     /**
      * 处理访客GUI点击
      */
-    private void handleVisitorGUI(Player player, ItemStack clickedItem) {
+    private void handleVisitorGUI(Player player, ItemStack clickedItem, int slot) {
         // 委托给访客GUI管理器处理
         try {
-            cn.popcraft.villagerpro.gui.VisitorGUIManager.handleGUIClick(player, 0, clickedItem);
+            cn.popcraft.villagerpro.gui.VisitorGUIManager.handleGUIClick(player, slot, clickedItem);
         } catch (Exception e) {
             VillagerPro.getInstance().getLogger().warning("访客GUI处理失败: " + e.getMessage());
             player.sendMessage("§c访客功能暂时不可用，请重试");
