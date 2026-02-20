@@ -158,7 +158,7 @@ public class CostHandler {
 
         // 使用ItemsAdder API检查物品数量
         try {
-            Class<?> itemsAdderAPI = Class.forName("dev.lone.itemsadder.api.ItemsAdderAPI");
+            Class<?> itemsAdderAPI = Class.forName("io.th0rgal.itemsadder.api.ItemsAdderAPI");
             Method method = itemsAdderAPI.getMethod("getItemAmount", Player.class, String.class);
             int playerAmount = (int) method.invoke(null, player, itemNamespace);
             return playerAmount >= amount;
@@ -182,7 +182,7 @@ public class CostHandler {
         
         // 使用ItemsAdder API移除物品
         try {
-            Class<?> itemsAdderAPI = Class.forName("dev.lone.itemsadder.api.ItemsAdderAPI");
+            Class<?> itemsAdderAPI = Class.forName("io.th0rgal.itemsadder.api.ItemsAdderAPI");
             Method method = itemsAdderAPI.getMethod("takeItem", Player.class, String.class, int.class);
             return (boolean) method.invoke(null, player, itemNamespace, amount);
         } catch (ClassNotFoundException e) {
