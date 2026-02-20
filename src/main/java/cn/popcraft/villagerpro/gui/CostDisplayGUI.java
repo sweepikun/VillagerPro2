@@ -209,7 +209,7 @@ public class CostDisplayGUI {
             }
             
             // 尝试获取ItemsAdder API
-            Class<?> itemsAdderAPI = Class.forName("dev.lone.itemsadder.api.ItemsAdderAPI");
+            Class<?> itemsAdderAPI = Class.forName("io.th0rgal.itemsadder.api.ItemsAdderAPI");
             java.lang.reflect.Method getInstanceMethod = itemsAdderAPI.getMethod("getInstance");
             Object apiInstance = getInstanceMethod.invoke(null);
             
