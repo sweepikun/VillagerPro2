@@ -1,6 +1,5 @@
 plugins {
     id 'java'
-    id 'com.github.johnrengelman.shadow' version '8.1.1'
 }
 
 group = 'cn.popcraft'
@@ -12,7 +11,6 @@ java {
 }
 
 repositories {
-    // 阿里云镜像优先
     maven {
         name = 'aliyun-maven'
         url = 'https://maven.aliyun.com/repository/public'
@@ -44,94 +42,14 @@ dependencies {
     compileOnly 'com.github.MilkBowl:VaultAPI:1.7'
     compileOnly 'org.black_ixx:playerpoints:3.2.6'
     compileOnly 'com.github.LoneDev6:API-ItemsAdder:3.6.1'
-
-    // 将 HikariCP 改为 implementation，需要打包进插件
-    implementation 'com.zaxxer:HikariCP:5.0.1'
-
-    // 添加 SQLite JDBC 驱动
-    implementation 'org.xerial:sqlite-jdbc:3.42.0.0'
-}
-
-processResources {
-    def props = [version: project.version]
-    inputs.properties props
-    filteringCharset 'UTF-8'
-    filesMatching('plugin.yml') {
-        expand props
-    }
-}
-
-tasks.withType(JavaCompile) {
-    options.encoding = 'UTF-8'
-}
-
-// 配置 shadow jar
-shadowJar {
-    archiveBaseName.set('VillagerPro2')
-    archiveVersion.set(project.version)
-    archiveClassifier.set('')
-    
-    // 重定位依赖，避免冲突
-    relocate 'com.zaxxer.hikari', 'cn.popcraft.villagerpro.libs.hikari'
-    relocate 'org.sqlite', 'cn.popcraft.villagerpro.libs.sqlite'
-}
-
-// 构建时默认执行 shadowJar
-build.dependsOn shadowJar
-
-group = 'cn.popcraft'
-version = '2.0.0'
-
-java {
-    sourceCompatibility = JavaVersion.VERSION_17
-    targetCompatibility = JavaVersion.VERSION_17
-}
-
-repositories {
-    // 阿里云镜像优先
-    maven {
-        name = 'aliyun-maven'
-        url = 'https://maven.aliyun.com/repository/public'
-    }
-    mavenCentral()
-    maven {
-        name = 'spigotmc-repo'
-        url = 'https://hub.spigotmc.org/nexus/content/repositories/snapshots/'
-    }
-    maven {
-        name = 'jitpack'
-        url = 'https://jitpack.io'
-    }
-    maven {
-        name = 'codemc-repo'
-        url = 'https://repo.codemc.io/repository/maven/'
-    }
-    maven {
-        name = 'itemsadder'
-        url = 'https://maven.devs.beer/'
-    }
-    maven { 
-        url = 'https://repo.rosewooddev.io/repository/public/' 
-    }
-}
-
-dependencies {
-    compileOnly 'org.spigotmc:spigot-api:1.19.4-R0.1-SNAPSHOT'
-    compileOnly 'com.github.MilkBowl:VaultAPI:1.7'
-    compileOnly 'org.black_ixx:playerpoints:3.2.6'
-    compileOnly 'com.github.LoneDev6:API-ItemsAdder:3.6.1'
-    
-    // 将HikariCP改为compileOnly，因为将在plugin.yml中声明
     compileOnly 'com.zaxxer:HikariCP:5.0.1'
-    
-    // 添加SQLite JDBC驱动
     compileOnly 'org.xerial:sqlite-jdbc:3.42.0.0'
 }
 
 processResources {
     def props = [version: project.version]
     inputs.properties props
-    filteringCharset 'UTF-8'
+    filteringCharset = 'UTF-8'
     filesMatching('plugin.yml') {
         expand props
     }
@@ -139,15 +57,4 @@ processResources {
 
 tasks.withType(JavaCompile) {
     options.encoding = 'UTF-8'
-}
-
-jar {
-    archiveBaseName.set('VillagerPro2')
-    archiveVersion.set(project.version)
-    
-    from {
-        configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }
-    }
-    
-    duplicatesStrategy = DuplicatesStrategy.EXCLUDE
 }
