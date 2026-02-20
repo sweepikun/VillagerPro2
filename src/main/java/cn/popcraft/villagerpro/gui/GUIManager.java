@@ -395,10 +395,11 @@ public class GUIManager {
         // 获取该职业可用的技能
         String profession = villager.getProfession();
         String upgradePath = "villager_upgrades." + profession;
-        if (VillagerPro.getInstance().getConfig().contains(upgradePath) && 
-            VillagerPro.getInstance().getConfig().getConfigurationSection(upgradePath) != null) {
-            Set<String> skills = VillagerPro.getInstance().getConfig()
-                    .getConfigurationSection(upgradePath).getKeys(false);
+        org.bukkit.configuration.file.FileConfiguration config = VillagerPro.getInstance().getConfig();
+        if (config.contains(upgradePath) &&
+            config.getConfigurationSection(upgradePath) != null) {
+            Set<String> skills = config
+                .getConfigurationSection(upgradePath).getKeys(false);
             
             int slot = 10; // 起始槽位
             for (String skillId : skills) {
@@ -636,14 +637,16 @@ public class GUIManager {
     public static void openVillageUpgradeGUI(Player player) {
         Village village = VillageManager.getVillage(player.getUniqueId());
         if (village == null) {
-            player.sendMessage("§c你还没有创建村庄！");
+            player.sendMessage("§c 你还没有创建村庄！");
             return;
         }
         
+        org.bukkit.configuration.file.FileConfiguration config = VillagerPro.getInstance().getConfig();
+        
         // 检查村庄是否已达到最高等级
-        int maxLevel = VillagerPro.getInstance().getConfig().getInt("village.max_level", 5);
+        int maxLevel = config.getInt("village.max_level", 5);
         if (village.getLevel() >= maxLevel) {
-            player.sendMessage("§c村庄已达到最高等级！");
+            player.sendMessage("§c 村庄已达到最高等级！");
             return;
         }
         
@@ -651,9 +654,9 @@ public class GUIManager {
         
         // 获取所有升级选项（不仅仅是未达最高等级的）
         List<String> allUpgradeOptions = new java.util.ArrayList<>();
-        if (VillagerPro.getInstance().getConfig().contains("village_upgrades.available_upgrades")) {
-            org.bukkit.configuration.ConfigurationSection section = VillagerPro.getInstance().getConfig()
-                    .getConfigurationSection("village_upgrades.available_upgrades");
+        if (config.contains("village_upgrades.available_upgrades")) {
+            org.bukkit.configuration.ConfigurationSection section = config
+                .getConfigurationSection("village_upgrades.available_upgrades");
             if (section != null) {
                 allUpgradeOptions.addAll(section.getKeys(false));
             }

@@ -190,7 +190,7 @@ public class EconomyManager {
             int playerAmount = (int) method.invoke(null, player, itemNamespace);
             return playerAmount >= amount;
         } catch (Exception e) {
-            e.printStackTrace();
+            VillagerPro.getInstance().getLogger().warning("数据库操作失败：" + e.getMessage());
             return false;
         }
     }
@@ -210,7 +210,7 @@ public class EconomyManager {
             Method method = itemsAdderAPI.getMethod("takeItem", Player.class, String.class, int.class);
             return (boolean) method.invoke(null, player, itemNamespace, amount);
         } catch (Exception e) {
-            e.printStackTrace();
+            VillagerPro.getInstance().getLogger().warning("数据库操作失败：" + e.getMessage());
             return false;
         }
     }

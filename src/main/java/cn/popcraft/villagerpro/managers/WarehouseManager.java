@@ -40,7 +40,7 @@ public class WarehouseManager {
                 ));
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            VillagerPro.getInstance().getLogger().warning("数据库操作失败：" + e.getMessage());
         }
         
         return items;
@@ -70,7 +70,7 @@ public class WarehouseManager {
                 );
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            VillagerPro.getInstance().getLogger().warning("数据库操作失败：" + e.getMessage());
         }
         
         return null;
@@ -97,7 +97,7 @@ public class WarehouseManager {
             
             return statement.executeUpdate() > 0;
         } catch (SQLException e) {
-            e.printStackTrace();
+            VillagerPro.getInstance().getLogger().warning("数据库操作失败：" + e.getMessage());
             return false;
         }
     }
@@ -126,7 +126,7 @@ public class WarehouseManager {
             
             return statement.executeUpdate() > 0;
         } catch (SQLException e) {
-            e.printStackTrace();
+            VillagerPro.getInstance().getLogger().warning("数据库操作失败：" + e.getMessage());
             return false;
         }
     }
@@ -218,7 +218,7 @@ public class WarehouseManager {
                 return resultSet.getInt("total");
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            VillagerPro.getInstance().getLogger().warning("数据库操作失败：" + e.getMessage());
         }
         
         return 0;
@@ -237,7 +237,7 @@ public class WarehouseManager {
             statement.setInt(1, villageId);
             return statement.executeUpdate() >= 0; // 即使没有记录被删除也返回true
         } catch (SQLException e) {
-            e.printStackTrace();
+            VillagerPro.getInstance().getLogger().warning("数据库操作失败：" + e.getMessage());
             return false;
         }
     }
