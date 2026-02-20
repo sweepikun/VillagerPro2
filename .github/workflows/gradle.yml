@@ -21,10 +21,10 @@ jobs:
         distribution: 'temurin'
 
     - name: Build with Gradle
-      run: gradle build
+      run: gradle shadowJar
 
     - name: Upload artifact
       uses: actions/upload-artifact@v4
       with:
-        name: VillagerPro2
-        path: villagerpro2/build/libs/*.jar
+        name: VillagerPro2-${{ github.sha }}
+        path: build/libs/*.jar
