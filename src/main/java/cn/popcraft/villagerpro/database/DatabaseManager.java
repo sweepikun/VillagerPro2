@@ -29,7 +29,7 @@ public class DatabaseManager {
             
             createTables();
         } catch (Exception e) {
-            e.printStackTrace();
+            VillagerPro.getInstance().getLogger().severe("数据库初始化失败: " + e.getMessage());
         }
     }
     
@@ -249,9 +249,9 @@ public class DatabaseManager {
                     ")");
             
             VillagerPro.getInstance().getLogger().info("数据库表创建完成");
-                    
+
         } catch (SQLException e) {
-            e.printStackTrace();
+            VillagerPro.getInstance().getLogger().severe("创建数据库表失败: " + e.getMessage());
         }
     }
     
