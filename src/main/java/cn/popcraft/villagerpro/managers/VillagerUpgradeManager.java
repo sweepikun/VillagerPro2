@@ -1,5 +1,6 @@
 package cn.popcraft.villagerpro.managers;
 
+import cn.popcraft.villagerpro.VillagerPro;
 import cn.popcraft.villagerpro.database.DatabaseManager;
 import cn.popcraft.villagerpro.economy.CostEntry;
 import cn.popcraft.villagerpro.economy.CostHandler;
@@ -36,7 +37,7 @@ public class VillagerUpgradeManager {
                 upgrades.put(resultSet.getString("skill_id"), resultSet.getInt("level"));
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            VillagerPro.getInstance().getLogger().warning("数据库操作失败：" + e.getMessage());
         }
         
         return upgrades;
@@ -61,7 +62,7 @@ public class VillagerUpgradeManager {
                 return resultSet.getInt("level");
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            VillagerPro.getInstance().getLogger().warning("数据库操作失败：" + e.getMessage());
         }
         
         return 0;
@@ -93,7 +94,7 @@ public class VillagerUpgradeManager {
             
             return statement.executeUpdate() > 0;
         } catch (SQLException e) {
-            e.printStackTrace();
+            VillagerPro.getInstance().getLogger().warning("数据库操作失败：" + e.getMessage());
             return false;
         }
     }

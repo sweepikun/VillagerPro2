@@ -37,25 +37,22 @@ village:
       costs:
         - type: "vault"
           amount: 800
-        - type: "itemsadder"
-          item: "villagerpro:village_token"
-          amount: 2
+        - type: "vault"
+          amount: 300
     - # 3 → 4
       costs:
         - type: "playerpoints"
           amount: 200
-        - type: "itemsadder"
-          item: "villagerpro:golden_seed"
-          amount: 5
+        - type: "vault"
+          amount: 400
     - # 4 → 5
       costs:
         - type: "vault"
           amount: 2000
         - type: "playerpoints"
           amount: 500
-        - type: "itemsadder"
-          item: "villagerpro:ancient_scroll"
-          amount: 1
+        - type: "playerpoints"
+          amount: 100
 
   # 基础村民数量上限（每级可额外增加，见 upgrade_skills）
   base_villager_limit: 3
@@ -91,9 +88,8 @@ village_upgrades:
       costs:
         - type: "vault"
           amount: 400
-        - type: "itemsadder"
-          item: "villagerpro:fishing_essence"
-          amount: 1
+        - type: "playerpoints"
+          amount: 150
 
     villager_capacity:
       name: "基建扩张"
@@ -119,9 +115,8 @@ village_upgrades:
       icon: TORCH
       max_level: 2
       costs:
-        - type: "itemsadder"
-          item: "villagerpro:ward_stone"
-          amount: 3
+        - type: "vault"
+          amount: 200
 
 # ==============================
 # 村民系统
@@ -134,9 +129,8 @@ villager:
   recruit_cost:
     - type: "vault"
       amount: 500
-    - type: "itemsadder"
-      item: "villagerpro:recruit_scroll"
-      amount: 1
+    - type: "vault"
+      amount: 100
 
   # 工作间隔（ticks，默认 2400 = 2分钟）
   work_interval_ticks: 2400
@@ -221,9 +215,8 @@ villager_upgrades:
       icon: HEART_OF_THE_SEA
       max_level: 2
       costs:
-        - type: "itemsadder"
-          item: "villagerpro:treasure_map"
-          amount: 2
+        - type: "playerpoints"
+          amount: 60
 
   shepherd:
     - id: efficient_shearing
@@ -242,9 +235,8 @@ villager_upgrades:
       icon: RAINBOW_WOOL
       max_level: 3
       costs:
-        - type: "itemsadder"
-          item: "villagerpro:colored_wool"
-          amount: 2
+        - type: "playerpoints"
+          amount: 50
 
   priest:
     - id: potion_master
@@ -263,9 +255,8 @@ villager_upgrades:
       icon: HEART
       max_level: 2
       costs:
-        - type: "itemsadder"
-          item: "villagerpro:blessed_water"
-          amount: 3
+        - type: "vault"
+          amount: 400
 
   librarian:
     - id: enchantment_expert
@@ -275,9 +266,8 @@ villager_upgrades:
       max_level: 3
       cost_multiplier: 1.6
       costs:
-        - type: "itemsadder"
-          item: "villagerpro:enchanted_scroll"
-          amount: 2
+        - type: "playerpoints"
+          amount: 80
 
     - id: knowledge_bonus
       name: "知识加成"
@@ -305,9 +295,8 @@ villager_upgrades:
       icon: TREASURE_MAP
       max_level: 2
       costs:
-        - type: "itemsadder"
-          item: "villagerpro:ancient_map"
-          amount: 1
+        - type: "vault"
+          amount: 350
 
 # ==============================
 # GUI 配置
@@ -385,7 +374,7 @@ visitors:
         item: "PUMPKIN"
         amount: 5
         reward:
-          item: "villagerpro:pumpkin_lantern"
+          item: "JACK_O_LANTERN"
           amount: 1
         name: "收获南瓜"
         
@@ -394,8 +383,8 @@ visitors:
         item: "WHITE_WOOL"
         amount: 10
         reward:
-          item: "villagerpro:wool_carpet"
-          amount: 1
+          item: "WHITE_WOOL"
+          amount: 5
         name: "织布需求"
         
       - name: "鱼类供应"
@@ -419,8 +408,8 @@ visitors:
         duration_hours: 48
         effect:
           production_boost: 1.5
-          item: "villagerpro:festival_pumpkin"
-          amount: 1
+          item: "PUMPKIN"
+          amount: 10
           
       winter:
         name: "冬季节"
@@ -428,7 +417,7 @@ visitors:
         duration_hours: 72
         effect:
           cold_resistance: true
-          item: "villagerpro:hot_cocoa"
+          item: "POTION"
           amount: 1
 
 # ==============================
@@ -491,7 +480,7 @@ decorations:
       material: POPPY
       cost:
         - type: "itemsadder"
-          item: "villagerpro:flower_pot"
+          item: "FLOWER_POT"
           amount: 1
         - type: "vault"
           amount: 50
@@ -602,7 +591,7 @@ eco_chain:
           produces: "WHITE_WOOL"
         - profession: "weaver"
           consumes: "WHITE_WOOL"
-          produces: "villagerpro:wool_carpet"
+          produces: "WHITE_WOOL"
           ratio: 5  # 5羊毛 -> 1地毯
           
   # 工作站识别（轻量版本）
@@ -625,10 +614,10 @@ eco_chain:
       
     weaver:
       name: "织布工"
-      icon: "villagerpro:loom"
+      icon: "WHITE_WOOL"
       requires: "shepherd"  # 需要牧羊人作为前置
       work_interval_ticks: 1800
-      produces: "villagerpro:wool_carpet"
+      produces: "WHITE_WOOL"
       efficiency: 0.6
 
 # ==============================
@@ -645,7 +634,7 @@ legacy:
     # 技能继承比例
     skill_inheritance_percentage: 50
     # 传承材料
-    scroll_item: "villagerpro:legacy_scroll"
+    scroll_item: "ENCHANTED_BOOK"
     scroll_cost: 1
     
   # 传承效果

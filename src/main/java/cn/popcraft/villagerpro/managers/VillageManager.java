@@ -1,5 +1,6 @@
 package cn.popcraft.villagerpro.managers;
 
+import cn.popcraft.villagerpro.VillagerPro;
 import cn.popcraft.villagerpro.database.DatabaseManager;
 import cn.popcraft.villagerpro.models.Village;
 
@@ -38,7 +39,7 @@ public class VillageManager {
                 villages.add(village);
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            VillagerPro.getInstance().getLogger().warning("数据库操作失败: " + e.getMessage());
         }
         
         return villages;
@@ -68,7 +69,7 @@ public class VillageManager {
                 );
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            VillagerPro.getInstance().getLogger().warning("数据库操作失败: " + e.getMessage());
         }
         
         return null;
@@ -98,7 +99,7 @@ public class VillageManager {
                 );
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            VillagerPro.getInstance().getLogger().warning("数据库操作失败: " + e.getMessage());
         }
         
         return null;
@@ -129,7 +130,7 @@ public class VillageManager {
                 }
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            VillagerPro.getInstance().getLogger().warning("数据库操作失败: " + e.getMessage());
         }
         
         return null;
@@ -152,7 +153,7 @@ public class VillageManager {
             
             return statement.executeUpdate() > 0;
         } catch (SQLException e) {
-            e.printStackTrace();
+            VillagerPro.getInstance().getLogger().warning("数据库操作失败: " + e.getMessage());
             return false;
         }
     }
@@ -175,7 +176,7 @@ public class VillageManager {
             
             return statement.executeUpdate() > 0;
         } catch (SQLException e) {
-            e.printStackTrace();
+            VillagerPro.getInstance().getLogger().warning("数据库操作失败: " + e.getMessage());
             return false;
         }
     }

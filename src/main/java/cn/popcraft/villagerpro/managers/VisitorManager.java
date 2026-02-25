@@ -379,12 +379,48 @@ public class VisitorManager {
     private void restoreActiveVisitors() {
         try (Connection conn = DatabaseManager.getConnection();
              PreparedStatement stmt = conn.prepareStatement(
-                 "SELECT * FROM visitors WHERE expires_at > CURRENT_TIMESTAMP ORDER BY id")) {
+                 "SELECT * FROM visitors WHERE expires_at > CURRENT_TIMESTAMP AND active = 1 ORDER BY id")) {
             
             ResultSet rs = stmt.executeQuery();
             while (rs.next()) {
-                // 恢复访客数据
-                // TODO: 实现完整的访客数据恢复逻辑
+                int id = rs.getInt("id");
+                int villageId = rs.getInt("village_id");
+                String type = rs.getString("type");
+                String name = rs.getString("name");
+                String displayName = rs.getString("display_name");
+                double x = rs.getDouble("location_x");
+                double y = rs.getDouble("location_y");
+                double z = rs.getDouble("location_z");
+                String worldName = rs.getString("world");
+                Timestamp spawnedAt = rs.getTimestamp("spawned_at");
+                Timestamp expiresAt = rs.getTimestamp("expires_at");
+                String customData = rs.getString("custom_data");
+                
+                World world = Bukkit.getWorld(worldName);
+                if (world == null) {
+                    VillagerPro.getInstance().getLogger().warning("访客 " + name + " 的世界不存在，跳过恢复");
+                    continue;
+                }
+                
+                Location location = new Location(world, x, y, z);
+                
+                VisitorData visitor = new VisitorData(
+                    id, villageId, type, location, 
+                    name, displayName, spawnedAt, 
+                    expiresAt, customData
+                );
+                
+                if (visitor.spawnEntity()) {
+                    activeVisitors.put(id, visitor);
+                    visitor.createCleanupTask();
+                    VillagerPro.getInstance().getLogger().info("已恢复访客: " + name);
+                } else {
+                    VillagerPro.getInstance().getLogger().warning("恢复访客实体失败: " + name);
+                }
+            }
+            
+            if (!activeVisitors.isEmpty()) {
+                VillagerPro.getInstance().getLogger().info("成功恢复 " + activeVisitors.size() + " 个活跃访客");
             }
         } catch (SQLException e) {
             VillagerPro.getInstance().getLogger().warning("恢复访客数据失败: " + e.getMessage());
@@ -479,8 +515,54 @@ public class VisitorManager {
      * 保存所有访客
      */
     private void saveAllVisitors() {
+        int savedCount = 0;
         for (VisitorData visitor : activeVisitors.values()) {
-            // TODO: 实现保存逻辑
+            if (visitor.getId() <= 0) {
+                int newId = saveVisitorToDatabase(visitor);
+                if (newId > 0) {
+                    visitor.setId(newId);
+                    savedCount++;
+                }
+            } else {
+                updateVisitorInDatabase(visitor);
+                savedCount++;
+            }
+        }
+        
+        if (savedCount > 0) {
+            VillagerPro.getInstance().getLogger().info("已保存 " + savedCount + " 个访客到数据库");
+        }
+    }
+    
+    /**
+     * 更新数据库中的访客
+     */
+    private boolean updateVisitorInDatabase(VisitorData visitor) {
+        try (Connection conn = DatabaseManager.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                 "UPDATE visitors SET village_id = ?, type = ?, name = ?, display_name = ?, " +
+                 "location_x = ?, location_y = ?, location_z = ?, world = ?, " +
+                 "spawned_at = ?, expires_at = ?, active = ?, custom_data = ? WHERE id = ?")) {
+            
+            Location loc = visitor.getLocation();
+            stmt.setInt(1, visitor.getVillageId());
+            stmt.setString(2, visitor.getType());
+            stmt.setString(3, visitor.getName());
+            stmt.setString(4, visitor.getDisplayName());
+            stmt.setDouble(5, loc.getX());
+            stmt.setDouble(6, loc.getY());
+            stmt.setDouble(7, loc.getZ());
+            stmt.setString(8, loc.getWorld() != null ? loc.getWorld().getName() : "");
+            stmt.setTimestamp(9, visitor.getSpawnedAt());
+            stmt.setTimestamp(10, visitor.getExpiresAt());
+            stmt.setBoolean(11, visitor.isActive());
+            stmt.setString(12, visitor.getCustomData());
+            stmt.setInt(13, visitor.getId());
+            
+            return stmt.executeUpdate() > 0;
+        } catch (SQLException e) {
+            VillagerPro.getInstance().getLogger().warning("更新访客数据失败: " + e.getMessage());
+            return false;
         }
     }
     

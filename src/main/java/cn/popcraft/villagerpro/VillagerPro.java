@@ -10,6 +10,8 @@ import cn.popcraft.villagerpro.managers.EcoChainManager;
 import cn.popcraft.villagerpro.managers.LegacyManager;
 import cn.popcraft.villagerpro.managers.PersonalityManager;
 import cn.popcraft.villagerpro.managers.VisitorManager;
+import cn.popcraft.villagerpro.managers.SimpleAllianceManager;
+import cn.popcraft.villagerpro.managers.SimpleAllianceGUIManager;
 import cn.popcraft.villagerpro.scheduler.WorkScheduler;
 import cn.popcraft.villagerpro.util.Messages;
 import net.milkbowl.vault.economy.Economy;
@@ -75,6 +77,15 @@ public class VillagerPro extends JavaPlugin {
         // 初始化传承系统
         if (getConfig().getBoolean("features.legacy", true)) {
             LegacyManager.getInstance();
+        }
+        
+        // 初始化联盟系统
+        if (getConfig().getBoolean("features.alliance", false)) {
+            SimpleAllianceManager allianceManager = SimpleAllianceManager.getInstance();
+            allianceManager.initialize(this);
+            SimpleAllianceGUIManager allianceGUIManager = SimpleAllianceGUIManager.getInstance();
+            // GUIManager是静态类，不需要实例
+            allianceGUIManager.initialize(this, allianceManager, null);
         }
         
         getLogger().info("VillagerPro 2.0 - 沉浸式村庄经营生态系统已启用！");
