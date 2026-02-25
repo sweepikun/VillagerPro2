@@ -45,7 +45,7 @@ public class VisitorScheduler {
                     checkAndSpawnVisitors();
                 } catch (Exception e) {
                     plugin.getLogger().warning("访客检查过程中出现错误: " + e.getMessage());
-                    e.printStackTrace();
+                    VillagerPro.getInstance().getLogger().warning("操作失败：" + e.getMessage());
                 }
             }
         };

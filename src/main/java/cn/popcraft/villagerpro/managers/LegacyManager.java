@@ -386,7 +386,23 @@ public class LegacyManager {
      */
     private boolean hasLegacyScroll(Player player, int amount) {
         // 检查玩家背包中的传承卷轴
-        return true; // 简化实现
+        String scrollItem = plugin.getConfig().getString("legacy.config.scroll_item", "villagerpro:legacy_scroll");
+        int found = 0;
+        
+        for (ItemStack item : player.getInventory().getContents()) {
+            if (item != null && item.getType() != Material.AIR) {
+                if (item.getType().name().equals(scrollItem) || 
+                    item.hasItemMeta() && item.getItemMeta().hasLore() && 
+                    item.getItemMeta().getLore().toString().contains("传承卷轴")) {
+                    found += item.getAmount();
+                    if (found >= amount) {
+                        return true;
+                    }
+                }
+            }
+        }
+        
+        return false;
     }
     
     /**
@@ -394,7 +410,34 @@ public class LegacyManager {
      */
     private boolean consumeLegacyScroll(Player player, int amount) {
         // 从玩家背包中移除传承卷轴
-        return true; // 简化实现
+        String scrollItem = plugin.getConfig().getString("legacy.config.scroll_item", "villagerpro:legacy_scroll");
+        int toConsume = amount;
+        
+        for (ItemStack item : player.getInventory().getContents()) {
+            if (item != null && item.getType() != Material.AIR) {
+                if (item.getType().name().equals(scrollItem) || 
+                    item.hasItemMeta() && item.getItemMeta().hasLore() && 
+                    item.getItemMeta().getLore().toString().contains("传承卷轴")) {
+                    
+                    int itemAmount = item.getAmount();
+                    if (itemAmount <= toConsume) {
+                        // 移除整个物品
+                        player.getInventory().remove(item);
+                        toConsume -= itemAmount;
+                    } else {
+                        // 移除部分物品
+                        item.setAmount(itemAmount - toConsume);
+                        toConsume = 0;
+                    }
+                    
+                    if (toConsume == 0) {
+                        break;
+                    }
+                }
+            }
+        }
+        
+        return toConsume == 0;
     }
     
     /**
@@ -407,10 +450,69 @@ public class LegacyManager {
         deleteVillagerFromDatabase(villager.getId());
     }
     
-    // 简化的工具方法（实际实现中需要完整的数据库操作）
-    private int saveVillagerToDatabase(VillagerData villager) { return 1; }
-    private void deleteVillagerFromDatabase(int villagerId) {}
-    private boolean spawnVillagerEntity(VillagerData villager, org.bukkit.Location location) { return true; }
+    /**
+     * 保存村民数据到数据库
+     */
+    private int saveVillagerToDatabase(VillagerData villager) {
+        // 简化实现，返回-1
+        return -1;
+    }
+    
+    /**
+     * 从数据库删除村民
+     */
+    private void deleteVillagerFromDatabase(int villagerId) {
+        try {
+            String sql = "DELETE FROM villagers WHERE id = ?";
+            
+            try (PreparedStatement stmt = DatabaseManager.getConnection().prepareStatement(sql)) {
+                stmt.setInt(1, villagerId);
+                stmt.executeUpdate();
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().severe("删除村民数据失败: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * 生成村民实体
+     */
+    private boolean spawnVillagerEntity(VillagerData villager, org.bukkit.Location location) {
+        try {
+            // 创建村民实体
+            org.bukkit.entity.Villager bukkitVillager = location.getWorld().spawn(location, org.bukkit.entity.Villager.class);
+            
+            // 设置村民属性
+            bukkitVillager.setVillagerType(getVillagerType(villager.getProfession()));
+            // bukkitVillager.setLevel(villager.getLevel()); // 移除不存在的API调用
+            
+            // 更新数据库中的实体UUID
+            String sql = "UPDATE villagers SET entity_uuid = ? WHERE id = ?";
+            try (PreparedStatement stmt = DatabaseManager.getConnection().prepareStatement(sql)) {
+                stmt.setString(1, bukkitVillager.getUniqueId().toString());
+                stmt.setInt(2, villager.getId());
+                stmt.executeUpdate();
+            }
+            
+            return true;
+        } catch (Exception e) {
+            plugin.getLogger().severe("生成村民实体失败: " + e.getMessage());
+            return false;
+        }
+    }
+    
+    /**
+     * 获取村民类型
+     */
+    private org.bukkit.entity.Villager.Type getVillagerType(String profession) {
+        try {
+            // 由于API版本问题，暂时返回null让Bukkit自动处理
+            return null;
+        } catch (Exception e) {
+            plugin.getLogger().warning("获取村民类型失败: " + e.getMessage());
+            return null;
+        }
+    }
     
     private LegacyConfig getLegacyConfig() {
         return legacyConfigs.get("default");
@@ -423,12 +525,68 @@ public class LegacyManager {
     
     private String serializeSkillMap(Map<String, Integer> skillMap) {
         // 将技能地图序列化为JSON字符串
-        return "{}"; // 简化实现
+        if (skillMap == null || skillMap.isEmpty()) {
+            return "{}";
+        }
+        
+        StringBuilder json = new StringBuilder("{");
+        boolean first = true;
+        
+        for (Map.Entry<String, Integer> entry : skillMap.entrySet()) {
+            if (!first) {
+                json.append(",");
+            }
+            first = false;
+            
+            json.append("\"").append(entry.getKey()).append("\":").append(entry.getValue());
+        }
+        
+        json.append("}");
+        return json.toString();
     }
     
     private Map<String, Integer> deserializeSkillMap(String serialized) {
         // 从JSON字符串反序列化技能地图
-        return new HashMap<>(); // 简化实现
+        Map<String, Integer> result = new HashMap<>();
+        
+        if (serialized == null || serialized.trim().isEmpty() || serialized.equals("{}")) {
+            return result;
+        }
+        
+        try {
+            // 移除花括号
+            String content = serialized.trim();
+            if (content.startsWith("{") && content.endsWith("}")) {
+                content = content.substring(1, content.length() - 1);
+            }
+            
+            if (content.isEmpty()) {
+                return result;
+            }
+            
+            // 分割键值对
+            String[] pairs = content.split(",");
+            
+            for (String pair : pairs) {
+                String[] keyValue = pair.split(":", 2);
+                if (keyValue.length == 2) {
+                    String key = keyValue[0].trim().replace("\"", "");
+                    String value = keyValue[1].trim();
+                    
+                    try {
+                        int intValue = Integer.parseInt(value);
+                        result.put(key, intValue);
+                    } catch (NumberFormatException e) {
+                        plugin.getLogger().warning("无法解析技能值: " + value);
+                    }
+                }
+            }
+            
+        } catch (Exception e) {
+            plugin.getLogger().warning("反序列化技能地图失败: " + e.getMessage());
+        }
+        
+        return result;
     }
     
     // ============== 数据类 ==============

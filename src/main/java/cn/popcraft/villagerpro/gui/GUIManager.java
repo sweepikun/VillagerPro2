@@ -16,11 +16,31 @@ import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
 
 public class GUIManager {
     private static final String GUI_PREFIX = VillagerPro.getInstance().getConfig().getString("gui.title_prefix", "§f[VP] ");
+    
+    private static final Map<Player, Integer> currentViewingVillagerId = new HashMap<>();
+    
+    public static String getGUIPrefix() {
+        return GUI_PREFIX;
+    }
+    
+    public static void setCurrentVillagerId(Player player, int villagerId) {
+        currentViewingVillagerId.put(player, villagerId);
+    }
+    
+    public static Integer getCurrentVillagerId(Player player) {
+        return currentViewingVillagerId.get(player);
+    }
+    
+    public static void removeCurrentVillagerId(Player player) {
+        currentViewingVillagerId.remove(player);
+    }
     
     /**
      * 打开村庄主界面
@@ -97,6 +117,19 @@ public class GUIManager {
         recruitMeta.setDisplayName("§d招募村民");
         recruitButton.setItemMeta(recruitMeta);
         gui.setItem(16, recruitButton);
+        
+        // 联盟按钮（如果联盟功能启用）
+        if (VillagerPro.getInstance().getConfig().getBoolean("features.alliance", false)) {
+            ItemStack allianceButton = new ItemStack(Material.GOLD_BLOCK);
+            ItemMeta allianceMeta = allianceButton.getItemMeta();
+            allianceMeta.setDisplayName("§e联盟管理");
+            List<String> allianceLore = new java.util.ArrayList<>();
+            allianceLore.add("§7管理村庄联盟");
+            allianceLore.add("§7与其他村庄合作");
+            allianceMeta.setLore(allianceLore);
+            allianceButton.setItemMeta(allianceMeta);
+            gui.setItem(14, allianceButton);
+        }
         
         // 关闭按钮
         ItemStack closeButton = new ItemStack(Material.BARRIER);
@@ -260,6 +293,8 @@ public class GUIManager {
      * @param villagerId 村民ID
      */
     public static void openVillagerInfoGUI(Player player, int villagerId) {
+        setCurrentVillagerId(player, villagerId);
+        
         VillagerData villager = null;
         Village village = VillageManager.getVillage(player.getUniqueId());
         if (village != null) {
@@ -274,6 +309,7 @@ public class GUIManager {
         
         if (villager == null) {
             player.sendMessage("§c找不到该村民！");
+            removeCurrentVillagerId(player);
             return;
         }
         
@@ -359,10 +395,11 @@ public class GUIManager {
         // 获取该职业可用的技能
         String profession = villager.getProfession();
         String upgradePath = "villager_upgrades." + profession;
-        if (VillagerPro.getInstance().getConfig().contains(upgradePath) && 
-            VillagerPro.getInstance().getConfig().getConfigurationSection(upgradePath) != null) {
-            Set<String> skills = VillagerPro.getInstance().getConfig()
-                    .getConfigurationSection(upgradePath).getKeys(false);
+        org.bukkit.configuration.file.FileConfiguration config = VillagerPro.getInstance().getConfig();
+        if (config.contains(upgradePath) &&
+            config.getConfigurationSection(upgradePath) != null) {
+            Set<String> skills = config
+                .getConfigurationSection(upgradePath).getKeys(false);
             
             int slot = 10; // 起始槽位
             for (String skillId : skills) {
@@ -600,14 +637,16 @@ public class GUIManager {
     public static void openVillageUpgradeGUI(Player player) {
         Village village = VillageManager.getVillage(player.getUniqueId());
         if (village == null) {
-            player.sendMessage("§c你还没有创建村庄！");
+            player.sendMessage("§c 你还没有创建村庄！");
             return;
         }
         
+        org.bukkit.configuration.file.FileConfiguration config = VillagerPro.getInstance().getConfig();
+        
         // 检查村庄是否已达到最高等级
-        int maxLevel = VillagerPro.getInstance().getConfig().getInt("village.max_level", 5);
+        int maxLevel = config.getInt("village.max_level", 5);
         if (village.getLevel() >= maxLevel) {
-            player.sendMessage("§c村庄已达到最高等级！");
+            player.sendMessage("§c 村庄已达到最高等级！");
             return;
         }
         
@@ -615,9 +654,9 @@ public class GUIManager {
         
         // 获取所有升级选项（不仅仅是未达最高等级的）
         List<String> allUpgradeOptions = new java.util.ArrayList<>();
-        if (VillagerPro.getInstance().getConfig().contains("village_upgrades.available_upgrades")) {
-            org.bukkit.configuration.ConfigurationSection section = VillagerPro.getInstance().getConfig()
-                    .getConfigurationSection("village_upgrades.available_upgrades");
+        if (config.contains("village_upgrades.available_upgrades")) {
+            org.bukkit.configuration.ConfigurationSection section = config
+                .getConfigurationSection("village_upgrades.available_upgrades");
             if (section != null) {
                 allUpgradeOptions.addAll(section.getKeys(false));
             }
@@ -655,6 +694,10 @@ public class GUIManager {
             List<cn.popcraft.villagerpro.economy.CostEntry> costs = 
                 VillageUpgradeManager.getUpgradeCosts(upgradeId);
             lore.addAll(cn.popcraft.villagerpro.economy.CostHandler.getDisplayLore(costs));
+            
+            // 添加升级ID用于后续处理
+            lore.add("");
+            lore.add("§8ID: " + upgradeId);
             
             meta.setLore(lore);
             upgradeItem.setItemMeta(meta);

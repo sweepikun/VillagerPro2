@@ -5,11 +5,12 @@ plugins {
 group = 'cn.popcraft'
 version = '2.0.0'
 
-sourceCompatibility = '17'
-targetCompatibility = '17'
+java {
+    sourceCompatibility = JavaVersion.VERSION_17
+    targetCompatibility = JavaVersion.VERSION_17
+}
 
 repositories {
-    // 阿里云镜像优先
     maven {
         name = 'aliyun-maven'
         url = 'https://maven.aliyun.com/repository/public'
@@ -31,8 +32,8 @@ repositories {
         name = 'itemsadder'
         url = 'https://maven.devs.beer/'
     }
-    maven { 
-        url = 'https://repo.rosewooddev.io/repository/public/' 
+    maven {
+        url = 'https://repo.rosewooddev.io/repository/public/'
     }
 }
 
@@ -41,18 +42,14 @@ dependencies {
     compileOnly 'com.github.MilkBowl:VaultAPI:1.7'
     compileOnly 'org.black_ixx:playerpoints:3.2.6'
     compileOnly 'com.github.LoneDev6:API-ItemsAdder:3.6.1'
-    
-    // 将HikariCP改为compileOnly，因为将在plugin.yml中声明
     compileOnly 'com.zaxxer:HikariCP:5.0.1'
-    
-    // 添加SQLite JDBC驱动
     compileOnly 'org.xerial:sqlite-jdbc:3.42.0.0'
 }
 
 processResources {
     def props = [version: project.version]
     inputs.properties props
-    filteringCharset 'UTF-8'
+    filteringCharset = 'UTF-8'
     filesMatching('plugin.yml') {
         expand props
     }

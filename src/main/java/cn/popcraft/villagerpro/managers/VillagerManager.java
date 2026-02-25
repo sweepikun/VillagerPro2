@@ -1,5 +1,6 @@
 package cn.popcraft.villagerpro.managers;
 
+import cn.popcraft.villagerpro.VillagerPro;
 import cn.popcraft.villagerpro.database.DatabaseManager;
 import cn.popcraft.villagerpro.economy.CostEntry;
 import cn.popcraft.villagerpro.economy.CostHandler;
@@ -46,7 +47,7 @@ public class VillagerManager {
                 villagers.add(villager);
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            VillagerPro.getInstance().getLogger().warning("数据库操作失败：" + e.getMessage());
         }
         
         return villagers;
@@ -77,7 +78,7 @@ public class VillagerManager {
                 );
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            VillagerPro.getInstance().getLogger().warning("数据库操作失败：" + e.getMessage());
         }
         
         return null;
@@ -108,7 +109,7 @@ public class VillagerManager {
                 );
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            VillagerPro.getInstance().getLogger().warning("数据库操作失败：" + e.getMessage());
         }
         
         return null;
@@ -167,7 +168,7 @@ public class VillagerManager {
                 }
             }
         } catch (SQLException e) {
-            e.printStackTrace();
+            VillagerPro.getInstance().getLogger().warning("数据库操作失败：" + e.getMessage());
         }
         
         // 不在这里发送消息，让调用者处理
@@ -187,7 +188,7 @@ public class VillagerManager {
             statement.setInt(1, villagerId);
             return statement.executeUpdate() > 0;
         } catch (SQLException e) {
-            e.printStackTrace();
+            VillagerPro.getInstance().getLogger().warning("数据库操作失败：" + e.getMessage());
             return false;
         }
     }
@@ -210,7 +211,7 @@ public class VillagerManager {
             
             return statement.executeUpdate() > 0;
         } catch (SQLException e) {
-            e.printStackTrace();
+            VillagerPro.getInstance().getLogger().warning("数据库操作失败：" + e.getMessage());
             return false;
         }
     }
@@ -233,7 +234,7 @@ public class VillagerManager {
             
             return statement.executeUpdate() > 0;
         } catch (SQLException e) {
-            e.printStackTrace();
+            VillagerPro.getInstance().getLogger().warning("数据库操作失败：" + e.getMessage());
             return false;
         }
     }

@@ -38,7 +38,7 @@ public class Messages {
             YamlConfiguration defaultConfig = YamlConfiguration.loadConfiguration(reader);
             messagesConfig.setDefaults(defaultConfig);
         } catch (Exception e) {
-            e.printStackTrace();
+            VillagerPro.getInstance().getLogger().warning("消息发送失败：" + e.getMessage());
         }
     }
     
