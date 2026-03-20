@@ -94,7 +94,7 @@ public class VillagerPro extends JavaPlugin {
     @Override
     public void onDisable() {
         // 停止所有跟随任务
-        // FollowManager.shutdown();
+        cn.popcraft.villagerpro.managers.FollowManager.shutdown();
         
         // 关闭工作调度器
         WorkScheduler.shutdown();

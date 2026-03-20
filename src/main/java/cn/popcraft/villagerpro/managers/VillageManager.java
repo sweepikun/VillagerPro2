@@ -37,6 +37,8 @@ public class VillageManager {
                         resultSet.getInt("prosperity")
                 );
                 villages.add(village);
+                // 缓存村庄数据
+                CacheManager.cacheVillage(village.getOwnerUUID(), village);
             }
         } catch (SQLException e) {
             VillagerPro.getInstance().getLogger().warning("数据库操作失败: " + e.getMessage());
@@ -51,6 +53,12 @@ public class VillageManager {
      * @return 村庄对象，如果不存在则返回null
      */
     public static Village getVillage(UUID ownerUUID) {
+        // 先检查缓存
+        Village cachedVillage = CacheManager.getCachedVillage(ownerUUID);
+        if (cachedVillage != null) {
+            return cachedVillage;
+        }
+        
         try (Connection connection = DatabaseManager.getConnection();
              PreparedStatement statement = connection.prepareStatement(
                      "SELECT id, owner_uuid, name, level, experience, prosperity FROM villages WHERE owner_uuid = ?")) {
@@ -59,7 +67,7 @@ public class VillageManager {
             ResultSet resultSet = statement.executeQuery();
             
             if (resultSet.next()) {
-                return new Village(
+                Village village = new Village(
                         resultSet.getInt("id"),
                         UUID.fromString(resultSet.getString("owner_uuid")),
                         resultSet.getString("name"),
@@ -67,6 +75,9 @@ public class VillageManager {
                         resultSet.getInt("experience"),
                         resultSet.getInt("prosperity")
                 );
+                // 缓存村庄数据
+                CacheManager.cacheVillage(ownerUUID, village);
+                return village;
             }
         } catch (SQLException e) {
             VillagerPro.getInstance().getLogger().warning("数据库操作失败: " + e.getMessage());
@@ -89,7 +100,7 @@ public class VillageManager {
             ResultSet resultSet = statement.executeQuery();
             
             if (resultSet.next()) {
-                return new Village(
+                Village village = new Village(
                         resultSet.getInt("id"),
                         UUID.fromString(resultSet.getString("owner_uuid")),
                         resultSet.getString("name"),
@@ -97,6 +108,9 @@ public class VillageManager {
                         resultSet.getInt("experience"),
                         resultSet.getInt("prosperity")
                 );
+                // 缓存村庄数据
+                CacheManager.cacheVillage(village.getOwnerUUID(), village);
+                return village;
             }
         } catch (SQLException e) {
             VillagerPro.getInstance().getLogger().warning("数据库操作失败: " + e.getMessage());
@@ -126,7 +140,10 @@ public class VillageManager {
                 ResultSet generatedKeys = statement.getGeneratedKeys();
                 if (generatedKeys.next()) {
                     int id = generatedKeys.getInt(1);
-                    return new Village(id, ownerUUID, name, 1, 0, 0);
+                    Village village = new Village(id, ownerUUID, name, 1, 0, 0);
+                    // 缓存新创建的村庄
+                    CacheManager.cacheVillage(ownerUUID, village);
+                    return village;
                 }
             }
         } catch (SQLException e) {
@@ -151,7 +168,12 @@ public class VillageManager {
             statement.setInt(3, village.getProsperity());
             statement.setInt(4, village.getId());
             
-            return statement.executeUpdate() > 0;
+            boolean success = statement.executeUpdate() > 0;
+            if (success) {
+                // 更新缓存
+                CacheManager.cacheVillage(village.getOwnerUUID(), village);
+            }
+            return success;
         } catch (SQLException e) {
             VillagerPro.getInstance().getLogger().warning("数据库操作失败: " + e.getMessage());
             return false;
@@ -174,7 +196,12 @@ public class VillageManager {
             statement.setInt(4, village.getProsperity());
             statement.setInt(5, village.getId());
             
-            return statement.executeUpdate() > 0;
+            boolean success = statement.executeUpdate() > 0;
+            if (success) {
+                // 更新缓存
+                CacheManager.cacheVillage(village.getOwnerUUID(), village);
+            }
+            return success;
         } catch (SQLException e) {
             VillagerPro.getInstance().getLogger().warning("数据库操作失败: " + e.getMessage());
             return false;

@@ -369,33 +369,29 @@ visitors:
     enabled: true
     # 旅行者提供的委托
     deals:
-      - name: "南瓜收集"
+      - name: "收获南瓜"
         description: "帮我收集5个南瓜"
         item: "PUMPKIN"
         amount: 5
         reward:
           item: "JACK_O_LANTERN"
           amount: 1
-        name: "收获南瓜"
         
-      - name: "羊毛收集"
+      - name: "织布需求"
         description: "我需要10块白色羊毛"
         item: "WHITE_WOOL"
         amount: 10
         reward:
           item: "WHITE_WOOL"
           amount: 5
-        name: "织布需求"
         
-      - name: "鱼类供应"
+      - name: "美食需求"
         description: "给我3条鲑鱼"
         item: "SALMON"
         amount: 3
         reward:
           item: "PLAYER_HEAD"
           amount: 1
-          name: "传说钓鱼者头像"
-        name: "美食需求"
 
   # 节日使者配置
   festival:
