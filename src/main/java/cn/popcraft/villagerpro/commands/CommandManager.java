@@ -168,7 +168,7 @@ public class CommandManager implements CommandExecutor, TabCompleter {
                 }
                 String villageName = nameBuilder.toString();
                 
-                Village village = VillageManager.createVillage(player.getUniqueId(), villageName);
+                Village village = VillageManager.createVillage(player.getUniqueId(), villageName, player.getLocation());
                 if (village != null) {
                     player.sendMessage("§a成功创建村庄: " + villageName);
                 } else {

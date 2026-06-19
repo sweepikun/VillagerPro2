@@ -1,18 +1,26 @@
 package cn.popcraft.villagerpro.gui;
 
 import cn.popcraft.villagerpro.VillagerPro;
+import cn.popcraft.villagerpro.economy.CostEntry;
+import cn.popcraft.villagerpro.economy.CostHandler;
 import cn.popcraft.villagerpro.managers.VisitorManager;
 import cn.popcraft.villagerpro.models.VisitorData;
-import cn.popcraft.villagerpro.models.VisitorDeal;
 import org.bukkit.Bukkit;
+import org.bukkit.ChatColor;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
 import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.persistence.PersistentDataContainer;
+import org.bukkit.persistence.PersistentDataType;
 
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * 访客GUI管理器
@@ -21,6 +29,10 @@ import java.util.Map;
 public class VisitorGUIManager {
     
     private static final String GUI_PREFIX = "§f[VP] ";
+    private static final NamespacedKey TAG_KEY = new NamespacedKey(VillagerPro.getInstance(), "visitor_tag");
+    
+    // 节日增益：festivalName -> 到期时间戳
+    private static final Map<String, Long> activeFestivalBoosts = new ConcurrentHashMap<>();
     
     /**
      * 显示商人GUI
@@ -192,7 +204,7 @@ public class VisitorGUIManager {
                 item.setItemMeta(itemMeta);
                 
                 // 设置额外数据用于购买处理
-                setItemTag(item, "visitor_purchase", itemData);
+                setItemTag(item, "merchant:" + name);
                 
                 gui.setItem(slot, item);
                 slot++;
@@ -238,21 +250,22 @@ public class VisitorGUIManager {
                 ItemMeta itemMeta = item.getItemMeta();
                 itemMeta.setDisplayName("§e" + name);
                 
-                // 检查玩家是否已完成此委托
-                boolean completed = isDealCompleted(player, visitor.getId(), name);
-                String statusPrefix = completed ? "§a✅ " : "§7";
+                // 检查玩家是否已接受或已完成此委托
+                boolean accepted = isDealAccepted(player, name);
+                boolean completed = accepted && hasItemInInventory(player, itemType, amount);
+                String statusPrefix = completed ? "§a✅ " : (accepted ? "§e⏳ " : "§7");
                 
                 itemMeta.setLore(java.util.Arrays.asList(
                     statusPrefix + "§7描述: " + description,
                     "§7需要: §f" + amount + " x " + itemType,
                     "§7奖励: §a" + rewardAmount + " x " + rewardName,
                     "",
-                    completed ? "§a委托已完成！" : "§a左键接受委托"
+                    completed ? "§a左键交付委托" : (accepted ? "§7背包中物品不足" : "§a左键接受委托")
                 ));
                 item.setItemMeta(itemMeta);
                 
                 // 设置额外数据用于委托处理
-                setItemTag(item, "visitor_deal", dealData);
+                setItemTag(item, "traveler:" + name);
                 
                 gui.setItem(slot, item);
                 slot++;
@@ -285,10 +298,11 @@ public class VisitorGUIManager {
             try {
                 String name = (String) festivalData.get("name");
                 String description = (String) festivalData.get("description");
-                String effect = (String) ((Map<String, Object>) festivalData.get("effect")).getOrDefault("production_boost", "1.0");
+                Map<String, Object> effect = (Map<String, Object>) festivalData.get("effect");
+                String effectStr = String.valueOf(effect.getOrDefault("production_boost", "1.0"));
                 
                 // 检查玩家是否已领取
-                boolean claimed = isFestivalClaimed(player, visitor.getId(), name);
+                boolean claimed = isFestivalClaimed(player, name);
                 String statusPrefix = claimed ? "§a✅ " : "§7";
                 
                 Material material = Material.FIREWORK_STAR;
@@ -298,14 +312,14 @@ public class VisitorGUIManager {
                 
                 itemMeta.setLore(java.util.Arrays.asList(
                     statusPrefix + "§7" + description,
-                    "§7效果: §e" + effect + "x 产出",
+                    "§7效果: §e" + effectStr + "x 产出",
                     "",
                     claimed ? "§a已领取！" : "§a左键领取"
                 ));
                 item.setItemMeta(itemMeta);
                 
                 // 设置额外数据用于奖励领取
-                setItemTag(item, "festival_reward", festivalData);
+                setItemTag(item, "festival:" + name);
                 
                 gui.setItem(slot, item);
                 slot++;
@@ -323,7 +337,7 @@ public class VisitorGUIManager {
         if (clickedItem == null) return false;
         
         ItemMeta meta = clickedItem.getItemMeta();
-        if (meta == null) return false;
+        if (meta == null || !meta.hasDisplayName()) return false;
         
         // 关闭按钮
         if (slot == 26 && "§c关闭".equals(meta.getDisplayName())) {
@@ -331,21 +345,26 @@ public class VisitorGUIManager {
             return true;
         }
         
-        // 商人购买处理
-        if (hasItemTag(clickedItem, "visitor_purchase")) {
-            handleMerchantPurchase(player, clickedItem);
+        String tag = getItemTag(clickedItem);
+        if (tag == null || tag.isEmpty()) return false;
+        
+        String title = player.getOpenInventory().getTitle();
+        
+        if (tag.startsWith("merchant:")) {
+            String name = tag.substring("merchant:".length());
+            handleMerchantPurchase(player, name);
             return true;
         }
         
-        // 旅行者委托处理
-        if (hasItemTag(clickedItem, "visitor_deal")) {
-            handleTravelerDeal(player, clickedItem);
+        if (tag.startsWith("traveler:")) {
+            String name = tag.substring("traveler:".length());
+            handleTravelerDeal(player, name);
             return true;
         }
         
-        // 节日奖励处理
-        if (hasItemTag(clickedItem, "festival_reward")) {
-            handleFestivalClaim(player, clickedItem);
+        if (tag.startsWith("festival:")) {
+            String name = tag.substring("festival:".length());
+            handleFestivalClaim(player, name);
             return true;
         }
         
@@ -355,33 +374,35 @@ public class VisitorGUIManager {
     /**
      * 处理商人购买
      */
-    private static void handleMerchantPurchase(Player player, ItemStack item) {
-        @SuppressWarnings("unchecked")
-        Map<String, Object> itemData = (Map<String, Object>) getItemTag(item, "visitor_purchase");
+    private static void handleMerchantPurchase(Player player, String name) {
+        Map<String, Object> itemData = findMerchantItemByName(name);
+        if (itemData == null) {
+            player.sendMessage("§c找不到该商品");
+            return;
+        }
         
         try {
-            // 获取价格
             List<Map<String, Object>> prices = (List<Map<String, Object>>) itemData.get("price");
             String itemType = (String) itemData.get("item");
-            String name = (String) itemData.getOrDefault("name", itemType);
             
-            // 检查玩家资源
-            if (!canAffordPrice(player, prices)) {
+            List<CostEntry> costs = parsePrices(prices);
+            if (!CostHandler.canAfford(player, costs)) {
                 player.sendMessage("§c资源不足，无法购买 " + name);
                 return;
             }
             
-            // 扣除资源
-            if (deductPrice(player, prices)) {
-                // 给予物品
-                giveItemToPlayer(player, itemType, 1);
-                player.sendMessage("§a成功购买 " + name + "！");
-                
-                // 记录交易
-                VisitorManager.getInstance().createDeal(
-                    null, "purchase", itemType, 1, 0, player.getName()
-                );
+            if (!CostHandler.deduct(player, costs)) {
+                player.sendMessage("§c扣除资源失败");
+                return;
             }
+            
+            giveItemToPlayer(player, itemType, 1);
+            player.sendMessage("§a成功购买 " + name + "！");
+            
+            // 记录交易
+            VisitorManager.getInstance().createDeal(
+                null, "purchase", itemType, 1, 0, player.getName()
+            );
             
         } catch (Exception e) {
             player.sendMessage("§c购买失败，请重试");
@@ -392,32 +413,40 @@ public class VisitorGUIManager {
     /**
      * 处理旅行者委托
      */
-    private static void handleTravelerDeal(Player player, ItemStack item) {
-        @SuppressWarnings("unchecked")
-        Map<String, Object> dealData = (Map<String, Object>) getItemTag(item, "visitor_deal");
+    private static void handleTravelerDeal(Player player, String name) {
+        Map<String, Object> dealData = findTravelerDealByName(name);
+        if (dealData == null) {
+            player.sendMessage("§c找不到该委托");
+            return;
+        }
         
         try {
-            String name = (String) dealData.get("name");
             String itemType = (String) dealData.get("item");
             int amount = (Integer) dealData.get("amount");
             String displayName = (String) dealData.get("name");
             
-            // 检查玩家背包
-            if (!hasItemInInventory(player, itemType, amount)) {
-                player.sendMessage("§c背包中没有足够的 " + itemType + " (需要 " + amount + " 个)");
-                return;
-            }
-            
-            // 检查是否已接受委托
             if (isDealAccepted(player, name)) {
-                player.sendMessage("§c你已经开始这个委托了！");
-                return;
+                // 已接受，尝试交付
+                if (hasItemInInventory(player, itemType, amount)) {
+                    removeItemFromInventory(player, itemType, amount);
+                    
+                    Map<String, Object> rewardData = (Map<String, Object>) dealData.get("reward");
+                    String rewardType = (String) rewardData.get("item");
+                    int rewardAmount = (Integer) rewardData.get("amount");
+                    giveItemToPlayer(player, rewardType, rewardAmount);
+                    
+                    clearDealAccepted(player, name);
+                    player.sendMessage("§a完成委托: " + displayName + "！");
+                    player.sendMessage("§a获得奖励: " + rewardAmount + " x " + rewardType);
+                } else {
+                    player.sendMessage("§c背包中没有足够的 " + itemType + " (需要 " + amount + " 个)");
+                }
+            } else {
+                // 接受委托
+                acceptDeal(player, name);
+                player.sendMessage("§a成功接受委托: " + displayName);
+                player.sendMessage("§7收集 " + amount + " 个 " + itemType + " 后再次点击交付");
             }
-            
-            // 接受委托
-            acceptDeal(player, name);
-            player.sendMessage("§a成功接受委托: " + displayName);
-            player.sendMessage("§7收集 " + amount + " 个 " + itemType + " 后右键访客交付");
             
         } catch (Exception e) {
             player.sendMessage("§c委托处理失败，请重试");
@@ -428,20 +457,19 @@ public class VisitorGUIManager {
     /**
      * 处理节日奖励领取
      */
-    private static void handleFestivalClaim(Player player, ItemStack item) {
-        @SuppressWarnings("unchecked")
-        Map<String, Object> festivalData = (Map<String, Object>) getItemTag(item, "festival_reward");
+    private static void handleFestivalClaim(Player player, String name) {
+        Map<String, Object> festivalData = findFestivalByName(name);
+        if (festivalData == null) {
+            player.sendMessage("§c找不到该节日奖励");
+            return;
+        }
         
         try {
-            String name = (String) festivalData.get("name");
-            
-            // 检查是否已领取
-            if (isFestivalClaimed(player, 0, name)) {
+            if (isFestivalClaimed(player, name)) {
                 player.sendMessage("§c这个奖励已经领取过了！");
                 return;
             }
             
-            // 给予奖励
             Map<String, Object> effect = (Map<String, Object>) festivalData.get("effect");
             if (effect.containsKey("item")) {
                 String rewardItem = (String) effect.get("item");
@@ -449,14 +477,125 @@ public class VisitorGUIManager {
                 giveItemToPlayer(player, rewardItem, amount);
             }
             
-            // 记录领取
+            // 激活产出加成
+            double boost = 1.0;
+            if (effect.containsKey("production_boost")) {
+                Object boostObj = effect.get("production_boost");
+                if (boostObj instanceof Number) {
+                    boost = ((Number) boostObj).doubleValue();
+                } else {
+                    try {
+                        boost = Double.parseDouble(String.valueOf(boostObj));
+                    } catch (NumberFormatException ignored) {
+                    }
+                }
+            }
+            long durationHours = ((Number) festivalData.getOrDefault("duration_hours", 48)).longValue();
+            activateFestivalBoost(name, boost, durationHours);
+            
             claimFestivalReward(player, name);
             player.sendMessage("§a成功领取节日奖励: " + name + "！");
+            player.sendMessage("§7节日产出加成 " + boost + "x 将持续 " + durationHours + " 小时");
             
         } catch (Exception e) {
             player.sendMessage("§c领取失败，请重试");
             VillagerPro.getInstance().getLogger().warning("节日奖励领取失败: " + e.getMessage());
         }
+    }
+    
+    // ============== 配置查找 ==============
+    
+    private static Map<String, Object> findMerchantItemByName(String name) {
+        VillagerPro plugin = VillagerPro.getInstance();
+        Object itemsObj = plugin.getConfig().get("visitors.merchant.items");
+        if (!(itemsObj instanceof List)) return null;
+        
+        for (Object itemObj : (List<?>) itemsObj) {
+            if (itemObj instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> itemData = (Map<String, Object>) itemObj;
+                String itemName = (String) itemData.getOrDefault("name", "");
+                if (itemName.equals(name)) {
+                    return itemData;
+                }
+            }
+        }
+        return null;
+    }
+    
+    private static Map<String, Object> findTravelerDealByName(String name) {
+        VillagerPro plugin = VillagerPro.getInstance();
+        Object dealsObj = plugin.getConfig().get("visitors.traveler.deals");
+        if (!(dealsObj instanceof List)) return null;
+        
+        for (Object dealObj : (List<?>) dealsObj) {
+            if (dealObj instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> dealData = (Map<String, Object>) dealObj;
+                String dealName = (String) dealData.get("name");
+                if (dealName != null && dealName.equals(name)) {
+                    return dealData;
+                }
+            }
+        }
+        return null;
+    }
+    
+    private static Map<String, Object> findFestivalByName(String name) {
+        VillagerPro plugin = VillagerPro.getInstance();
+        Object festivalsObj = plugin.getConfig().get("visitors.festival.festivals");
+        if (!(festivalsObj instanceof List)) return null;
+        
+        for (Object festivalObj : (List<?>) festivalsObj) {
+            if (festivalObj instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> festivalData = (Map<String, Object>) festivalObj;
+                String festivalName = (String) festivalData.get("name");
+                if (festivalName != null && festivalName.equals(name)) {
+                    return festivalData;
+                }
+            }
+        }
+        return null;
+    }
+    
+    // ============== 节日增益 ==============
+    
+    private static void activateFestivalBoost(String festivalName, double boost, long durationHours) {
+        long expiresAt = System.currentTimeMillis() + durationHours * 60 * 60 * 1000;
+        activeFestivalBoosts.put(festivalName, expiresAt);
+    }
+    
+    /**
+     * 获取当前生效的节日产出倍率
+     * @return 所有激活倍率的乘积，无加成返回 1.0
+     */
+    public static double getActiveProductionBoost() {
+        double totalBoost = 1.0;
+        long now = System.currentTimeMillis();
+        activeFestivalBoosts.entrySet().removeIf(entry -> entry.getValue() < now);
+        
+        for (Map.Entry<String, Long> entry : activeFestivalBoosts.entrySet()) {
+            Map<String, Object> festivalData = findFestivalByName(entry.getKey());
+            if (festivalData == null) continue;
+            
+            Map<String, Object> effect = (Map<String, Object>) festivalData.get("effect");
+            if (effect == null) continue;
+            
+            Object boostObj = effect.get("production_boost");
+            double boost = 1.0;
+            if (boostObj instanceof Number) {
+                boost = ((Number) boostObj).doubleValue();
+            } else if (boostObj != null) {
+                try {
+                    boost = Double.parseDouble(String.valueOf(boostObj));
+                } catch (NumberFormatException ignored) {
+                }
+            }
+            totalBoost *= boost;
+        }
+        
+        return totalBoost;
     }
     
     // ============== 工具方法 ==============
@@ -496,61 +635,154 @@ public class VisitorGUIManager {
         return Math.max(0, (int) remaining) + "";
     }
     
-    // 简化的工具方法（实际实现中需要更复杂的逻辑）
-    private static void setItemTag(ItemStack item, String key, Object value) {
-        // 这里需要使用NBT标签或ItemMeta来存储数据
-        // 简化实现，实际使用中需要更完整的实现
+    // 使用 PersistentDataContainer 存储标签
+    private static void setItemTag(ItemStack item, String value) {
+        ItemMeta meta = item.getItemMeta();
+        if (meta == null) return;
+        meta.getPersistentDataContainer().set(TAG_KEY, PersistentDataType.STRING, value);
+        item.setItemMeta(meta);
     }
     
-    private static Object getItemTag(ItemStack item, String key) {
-        // 从ItemMeta获取存储的数据
-        return null;
+    private static String getItemTag(ItemStack item) {
+        ItemMeta meta = item.getItemMeta();
+        if (meta == null) return null;
+        PersistentDataContainer container = meta.getPersistentDataContainer();
+        return container.has(TAG_KEY, PersistentDataType.STRING) 
+            ? container.get(TAG_KEY, PersistentDataType.STRING) 
+            : null;
     }
     
-    private static boolean hasItemTag(ItemStack item, String key) {
-        return getItemTag(item, key) != null;
-    }
-    
-    private static boolean canAffordPrice(Player player, List<Map<String, Object>> prices) {
-        // 检查玩家资源
-        return true; // 简化实现
-    }
-    
-    private static boolean deductPrice(Player player, List<Map<String, Object>> prices) {
-        // 扣除玩家资源
-        return true; // 简化实现
+    private static List<CostEntry> parsePrices(List<Map<String, Object>> prices) {
+        List<CostEntry> costs = new ArrayList<>();
+        if (prices == null) return costs;
+        
+        for (Map<String, Object> priceData : prices) {
+            String type = (String) priceData.get("type");
+            Object amountObj = priceData.get("amount");
+            double amount = 0;
+            if (amountObj instanceof Number) {
+                amount = ((Number) amountObj).doubleValue();
+            } else if (amountObj != null) {
+                try {
+                    amount = Double.parseDouble(String.valueOf(amountObj));
+                } catch (NumberFormatException ignored) {
+                }
+            }
+            
+            if ("itemsadder".equalsIgnoreCase(type)) {
+                String item = priceData.get("item") != null ? String.valueOf(priceData.get("item")) : "";
+                costs.add(new CostEntry(type, amount, item));
+            } else {
+                costs.add(new CostEntry(type, amount));
+            }
+        }
+        
+        return costs;
     }
     
     private static void giveItemToPlayer(Player player, String itemType, int amount) {
-        // 给玩家物品
-        // 简化实现
+        if (itemType.startsWith("villagerpro:")) {
+            // 自定义物品，通过 ItemsAdder 发放（如果可用）
+            giveCustomItem(player, itemType, amount);
+            return;
+        }
+        
+        Material material = Material.getMaterial(itemType);
+        if (material == null) {
+            player.sendMessage("§c无法给予未知物品: " + itemType);
+            return;
+        }
+        
+        ItemStack itemStack = new ItemStack(material, amount);
+        player.getInventory().addItem(itemStack);
+    }
+    
+    private static void giveCustomItem(Player player, String itemNamespace, int amount) {
+        if (Bukkit.getPluginManager().getPlugin("ItemsAdder") == null) {
+            player.sendMessage("§c自定义物品插件未加载，无法获得 " + itemNamespace);
+            return;
+        }
+        try {
+            Class<?> itemsAdderAPI = Class.forName("dev.lone.itemsadder.api.ItemsAdder");
+            Object customItem = itemsAdderAPI.getMethod("getCustomItem", String.class).invoke(null, itemNamespace);
+            if (customItem == null) {
+                player.sendMessage("§c找不到自定义物品: " + itemNamespace);
+                return;
+            }
+            ItemStack itemStack = (ItemStack) customItem.getClass().getMethod("getItemStack").invoke(customItem);
+            itemStack.setAmount(amount);
+            player.getInventory().addItem(itemStack);
+        } catch (Exception e) {
+            player.sendMessage("§c发放自定义物品失败: " + itemNamespace);
+            VillagerPro.getInstance().getLogger().warning("发放自定义物品失败: " + e.getMessage());
+        }
     }
     
     private static boolean hasItemInInventory(Player player, String itemType, int amount) {
-        // 检查玩家背包
-        return true; // 简化实现
+        Material material = Material.getMaterial(itemType);
+        if (material == null) return false;
+        
+        int found = 0;
+        for (ItemStack item : player.getInventory().getContents()) {
+            if (item != null && item.getType() == material) {
+                found += item.getAmount();
+                if (found >= amount) return true;
+            }
+        }
+        return false;
     }
     
-    private static boolean isDealCompleted(Player player, int visitorId, String dealName) {
-        // 检查委托是否完成
-        return false; // 简化实现
+    private static void removeItemFromInventory(Player player, String itemType, int amount) {
+        Material material = Material.getMaterial(itemType);
+        if (material == null) return;
+        
+        int toRemove = amount;
+        for (ItemStack item : player.getInventory().getContents()) {
+            if (item != null && item.getType() == material) {
+                int itemAmount = item.getAmount();
+                if (itemAmount <= toRemove) {
+                    player.getInventory().remove(item);
+                    toRemove -= itemAmount;
+                } else {
+                    item.setAmount(itemAmount - toRemove);
+                    toRemove = 0;
+                }
+                if (toRemove == 0) break;
+            }
+        }
     }
+    
+    // 旅行者委托状态：playerUUID -> dealName -> 是否已接受
+    private static final Map<String, Map<String, Boolean>> acceptedDeals = new HashMap<>();
     
     private static boolean isDealAccepted(Player player, String dealName) {
-        // 检查是否已接受委托
-        return false; // 简化实现
+        return acceptedDeals.getOrDefault(player.getUniqueId().toString(), new HashMap<>()).getOrDefault(dealName, false);
     }
     
     private static void acceptDeal(Player player, String dealName) {
-        // 记录委托接受
+        acceptedDeals.computeIfAbsent(player.getUniqueId().toString(), k -> new HashMap<>()).put(dealName, true);
     }
     
-    private static boolean isFestivalClaimed(Player player, int visitorId, String festivalName) {
-        // 检查节日奖励是否已领取
-        return false; // 简化实现
+    private static void clearDealAccepted(Player player, String dealName) {
+        acceptedDeals.computeIfAbsent(player.getUniqueId().toString(), k -> new HashMap<>()).put(dealName, false);
+    }
+    
+    // 节日奖励领取：playerUUID -> festivalName -> 是否已领取
+    private static final Map<String, Map<String, Boolean>> claimedFestivals = new HashMap<>();
+    
+    private static boolean isFestivalClaimed(Player player, String festivalName) {
+        return claimedFestivals.getOrDefault(player.getUniqueId().toString(), new HashMap<>()).getOrDefault(festivalName, false);
     }
     
     private static void claimFestivalReward(Player player, String festivalName) {
-        // 记录奖励领取
+        claimedFestivals.computeIfAbsent(player.getUniqueId().toString(), k -> new HashMap<>()).put(festivalName, true);
+    }
+    
+    /**
+     * 移除颜色代码
+     */
+    @SuppressWarnings("unused")
+    private static String stripColor(String text) {
+        return text == null ? "" : ChatColor.stripColor(text);
     }
 }

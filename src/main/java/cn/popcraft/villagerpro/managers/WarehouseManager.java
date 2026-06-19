@@ -85,6 +85,21 @@ public class WarehouseManager {
      * @return 是否添加成功
      */
     public static boolean addWarehouseItem(int villageId, String itemType, int amount) {
+        if (amount <= 0) {
+            return false;
+        }
+        
+        // 检查仓库容量
+        Village village = VillageManager.getVillageById(villageId);
+        if (village != null) {
+            int capacity = village.getWarehouseCapacity();
+            int currentStorage = getCurrentStorage(villageId);
+            if (currentStorage + amount > capacity) {
+                VillagerPro.getInstance().getLogger().warning("村庄 " + villageId + " 仓库已满，无法存入 " + itemType);
+                return false;
+            }
+        }
+        
         try (Connection connection = DatabaseManager.getConnection();
              PreparedStatement statement = connection.prepareStatement(
                      "INSERT OR REPLACE INTO warehouse (village_id, item_type, amount) VALUES (?, ?, " +

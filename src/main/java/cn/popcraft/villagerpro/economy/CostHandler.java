@@ -39,14 +39,14 @@ public class CostHandler {
             case "vault":
                 return hasVaultBalance(player, cost.getAmount());
             case "playerpoints":
-                 if (Bukkit.getPluginManager().getPlugin("PlayerPoints") == null) {
-                     return true; // 如果PlayerPoints不可用，则忽略此成本
-                 }
+                if (Bukkit.getPluginManager().getPlugin("PlayerPoints") == null) {
+                    return false; // 如果 PlayerPoints 不可用，视为无法支付此成本
+                }
                 return hasPlayerPoints(player, (int) cost.getAmount());
             case "itemsadder":
-                // 如果ItemsAdder不可用，则忽略此成本
+                // 如果 ItemsAdder 不可用，视为无法支付此成本
                 if (Bukkit.getPluginManager().getPlugin("ItemsAdder") == null) {
-                    return true;
+                    return false;
                 }
                 return hasItemsAdderItem(player, cost.getItem(), (int) cost.getAmount());
             default:
@@ -91,9 +91,9 @@ public class CostHandler {
             case "playerpoints":
                 return withdrawPlayerPoints(player, (int) cost.getAmount());
             case "itemsadder":
-                // 如果ItemsAdder不可用，则忽略此成本
+                // 如果 ItemsAdder 不可用，视为无法支付此成本
                 if (Bukkit.getPluginManager().getPlugin("ItemsAdder") == null) {
-                    return true;
+                    return false;
                 }
                 return removeItemsAdderItem(player, cost.getItem(), (int) cost.getAmount());
             default:

@@ -13,17 +13,21 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.scheduler.BukkitRunnable;
 import org.bukkit.scheduler.BukkitTask;
 
+import cn.popcraft.villagerpro.managers.ExperienceManager;
+import cn.popcraft.villagerpro.managers.EcoChainManager;
+
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.HashMap;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.Map;
 
 public class WorkScheduler {
     private static BukkitTask workTask;
     
     // 存储每个村民的下次产出时间
-    private static Map<Integer, Long> nextWorkTime = new HashMap<>();
+    private static Map<Integer, Long> nextWorkTime = new ConcurrentHashMap<>();
     
     /**
      * 初始化工作调度器
@@ -121,33 +125,62 @@ public class WorkScheduler {
         String profession = villager.getProfession();
         String path = "villager.professions." + profession;
         
-        if (VillagerPro.getInstance().getConfig().contains(path)) {
-            // 获取该职业的工作物品列表
-            List<String> workItems = VillagerPro.getInstance().getConfig().getStringList(path + ".work_items");
-            if (workItems.isEmpty()) return;
-            
-            // 获取基础产出数量
-            int baseAmount = VillagerPro.getInstance().getConfig().getInt(path + ".base_amount", 1);
-            
-            // 获取概率
-            double probability = VillagerPro.getInstance().getConfig().getDouble(path + ".probability", 1.0);
-            
-            // 根据概率决定是否产出
-            if (ThreadLocalRandom.current().nextDouble() > probability) return;
-            
-            // 随机选择一个工作物品
-            String itemType = workItems.get(ThreadLocalRandom.current().nextInt(workItems.size()));
-            
-            // 计算实际产出数量（考虑村民等级等因素）
-            int amount = calculateProductionAmount(villager, baseAmount);
-            
-            // 添加到仓库
-            WarehouseManager.addWarehouseItem(village.getId(), itemType, amount);
-            
-            // 增加村民经验
-            villager.addExperience(1);
-            VillagerManager.updateVillager(villager);
+        if (!VillagerPro.getInstance().getConfig().contains(path)) {
+            return;
         }
+        
+        // 获取该职业的工作物品列表
+        List<String> workItems = VillagerPro.getInstance().getConfig().getStringList(path + ".work_items");
+        if (workItems.isEmpty()) return;
+        
+        // 获取基础产出数量
+        int baseAmount = VillagerPro.getInstance().getConfig().getInt(path + ".base_amount", 1);
+        
+        // 获取概率
+        double probability = VillagerPro.getInstance().getConfig().getDouble(path + ".probability", 1.0);
+        
+        // 根据概率决定是否产出
+        if (ThreadLocalRandom.current().nextDouble() > probability) return;
+        
+        // 随机选择一个工作物品
+        String itemType = workItems.get(ThreadLocalRandom.current().nextInt(workItems.size()));
+        Material material = Material.getMaterial(itemType);
+        if (material == null) {
+            if (VillagerPro.getInstance().getConfig().getBoolean("debug", false)) {
+                VillagerPro.getInstance().getLogger().warning("村民职业 " + profession + " 配置了无效物品: " + itemType);
+            }
+            return;
+        }
+        
+        // 计算实际产出数量（考虑村民等级等因素）
+        int amount = calculateProductionAmount(villager, baseAmount);
+        
+        // 应用工作站加成
+        if (villager.getEntity() != null) {
+            double workstationBonus = EcoChainManager.getInstance().getWorkstationBonus(villager, villager.getEntity().getLocation());
+            amount = Math.max(1, (int) (amount * workstationBonus));
+        }
+        
+        // 应用节日产出加成
+        amount = Math.max(1, (int) (amount * cn.popcraft.villagerpro.gui.VisitorGUIManager.getActiveProductionBoost()));
+        
+        // 构建基础产出
+        List<ItemStack> baseOutput = new ArrayList<>();
+        baseOutput.add(new ItemStack(material, amount));
+        
+        // 通过生态联动处理产出（如农民+面包师协作）
+        List<ItemStack> processedOutput = EcoChainManager.getInstance().processWorkOutput(villager, baseOutput);
+        
+        // 将产出加入仓库
+        for (ItemStack item : processedOutput) {
+            if (item != null && item.getAmount() > 0) {
+                WarehouseManager.addWarehouseItem(village.getId(), item.getType().name(), item.getAmount());
+            }
+        }
+        
+        // 增加村民与村庄经验，并通过 ExperienceManager 进行升级判定
+        ExperienceManager.addVillagerExperience(villager, 1);
+        ExperienceManager.addVillageExperience(village, 1);
     }
     
     /**

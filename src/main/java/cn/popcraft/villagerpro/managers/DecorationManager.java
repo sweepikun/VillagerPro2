@@ -5,6 +5,7 @@ import cn.popcraft.villagerpro.database.DatabaseManager;
 import cn.popcraft.villagerpro.economy.CostEntry;
 import cn.popcraft.villagerpro.economy.CostHandler;
 import cn.popcraft.villagerpro.models.Village;
+import cn.popcraft.villagerpro.models.VillagerData;
 import org.bukkit.Location;
 import org.bukkit.Material;
 import org.bukkit.block.Block;
@@ -20,6 +21,7 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
 
 /**
@@ -67,11 +69,13 @@ public class DecorationManager {
         // 获取装饰信息
         String name = decorationConfig.getString("name", decorationType);
         Material material = Material.valueOf(decorationConfig.getString("material", "STONE"));
-        List<String> costList = decorationConfig.getStringList("cost");
         int prosperityBoost = decorationConfig.getInt("prosperity_boost", 0);
         
-        // 检查并扣除成本
-        List<CostEntry> parsedCosts = parseCosts(costList);
+        // 解析成本（兼容 YAML 对象列表与旧版字符串列表）
+        List<CostEntry> parsedCosts = parseDecorationCosts(decorationConfig.getList("cost"));
+        if (parsedCosts == null) {
+            parsedCosts = new ArrayList<>();
+        }
         if (!costHandler.canAfford(player, parsedCosts)) {
             player.sendMessage("§c资源不足，无法购买 " + name);
             return false;
@@ -194,20 +198,33 @@ public class DecorationManager {
     }
     
     /**
-     * 启用花坛效果
+     * 启用花坛效果：提升附近村民的情绪
      */
     private void enableFlowerBedEffect(Village village, Block block) {
-        // 给附近的村民增加情绪值
-        // 这里可以遍历村庄的村民并增加情绪值
-        // 使用 VillagerManager.getVillagers(villageId) 获取村民列表
+        // 给村庄中心附近的所有村民增加心情
+        Location center = block.getLocation();
+        for (VillagerData villager : VillagerManager.getVillagers(village.getId())) {
+            org.bukkit.entity.Villager entity = villager.getEntity();
+            if (entity == null || !entity.isValid()) continue;
+            if (entity.getWorld().equals(center.getWorld()) && entity.getLocation().distance(center) <= 10) {
+                PersonalityManager.getInstance().interactWithVillager(null, villager, "praise");
+            }
+        }
     }
     
     /**
-     * 启用长椅效果
+     * 启用长椅效果：让附近村民获得缓慢/休息效果
      */
     private void enableBenchEffect(Village village, Block block) {
-        // 让村民可以在长椅上"坐下"
-        // 这里可以添加村民的坐下动画或位置调整逻辑
+        Location center = block.getLocation();
+        for (VillagerData villager : VillagerManager.getVillagers(village.getId())) {
+            org.bukkit.entity.Villager entity = villager.getEntity();
+            if (entity == null || !entity.isValid()) continue;
+            if (entity.getWorld().equals(center.getWorld()) && entity.getLocation().distance(center) <= 5) {
+                entity.addPotionEffect(new org.bukkit.potion.PotionEffect(
+                    org.bukkit.potion.PotionEffectType.SLOW, 200, 1, false, false));
+            }
+        }
     }
     
     /**
@@ -267,13 +284,10 @@ public class DecorationManager {
     }
     
     /**
-     * 获取村庄位置（临时实现）
+     * 获取村庄中心位置
      */
     private Location getVillageLocation(Village village) {
-        // 这里需要根据实际的村庄数据模型来获取村庄中心位置
-        // 暂时返回世界出生点
-        return village.getOwnerUUID() != null ? 
-            plugin.getServer().getWorlds().get(0).getSpawnLocation() : null;
+        return village.getLocation();
     }
     
     /**
@@ -395,28 +409,81 @@ public class DecorationManager {
     }
     
     /**
-     * 解析成本字符串列表为CostEntry列表
+     * 解析装饰成本列表为 CostEntry 列表
+     * 兼容 YAML 对象列表（type/amount/item）和旧版字符串格式
+     */
+    private List<CostEntry> parseDecorationCosts(List<?> costList) {
+        List<CostEntry> costs = new ArrayList<>();
+        if (costList == null) {
+            return costs;
+        }
+        
+        for (Object obj : costList) {
+            if (obj instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> costMap = (Map<String, Object>) obj;
+                String type = String.valueOf(costMap.get("type"));
+                Object amountObj = costMap.get("amount");
+                double amount = 0;
+                if (amountObj instanceof Number) {
+                    amount = ((Number) amountObj).doubleValue();
+                } else if (amountObj != null) {
+                    try {
+                        amount = Double.parseDouble(String.valueOf(amountObj));
+                    } catch (NumberFormatException ignored) {
+                    }
+                }
+                
+                if ("itemsadder".equalsIgnoreCase(type)) {
+                    String item = costMap.get("item") != null ? String.valueOf(costMap.get("item")) : "";
+                    costs.add(new CostEntry(type, amount, item));
+                } else {
+                    costs.add(new CostEntry(type, amount));
+                }
+            } else if (obj instanceof String) {
+                costs.addAll(parseLegacyCostString((String) obj));
+            }
+        }
+        
+        return costs;
+    }
+    
+    /**
+     * 解析旧版字符串成本格式
+     * 格式: "vault:100", "playerpoints:50", "itemsadder:10:item_id"
+     */
+    private List<CostEntry> parseLegacyCostString(String costString) {
+        List<CostEntry> costs = new ArrayList<>();
+        try {
+            String[] parts = costString.split(":");
+            if (parts.length >= 2) {
+                String type = parts[0].toLowerCase();
+                double amount = Double.parseDouble(parts[1]);
+                
+                if ("itemsadder".equals(type) && parts.length >= 3) {
+                    String item = parts[2];
+                    costs.add(new CostEntry(type, amount, item));
+                } else {
+                    costs.add(new CostEntry(type, amount));
+                }
+            }
+        } catch (NumberFormatException | ArrayIndexOutOfBoundsException e) {
+            plugin.getLogger().warning("无效的成本格式: " + costString);
+        }
+        return costs;
+    }
+    
+    /**
+     * 解析成本字符串列表为CostEntry列表（保留旧方法名以兼容）
      * 格式: "vault:100", "playerpoints:50", "itemsadder:10:item_id"
      */
     private List<CostEntry> parseCosts(List<String> costStrings) {
         List<CostEntry> costs = new ArrayList<>();
+        if (costStrings == null) {
+            return costs;
+        }
         for (String costString : costStrings) {
-            try {
-                String[] parts = costString.split(":");
-                if (parts.length >= 2) {
-                    String type = parts[0].toLowerCase();
-                    double amount = Double.parseDouble(parts[1]);
-                    
-                    if ("itemsadder".equals(type) && parts.length >= 3) {
-                        String item = parts[2];
-                        costs.add(new CostEntry(type, amount, item));
-                    } else {
-                        costs.add(new CostEntry(type, amount));
-                    }
-                }
-            } catch (NumberFormatException | ArrayIndexOutOfBoundsException e) {
-                plugin.getLogger().warning("无效的成本格式: " + costString);
-            }
+            costs.addAll(parseLegacyCostString(costString));
         }
         return costs;
     }

@@ -48,8 +48,15 @@ public class DatabaseManager {
                     "level INTEGER NOT NULL DEFAULT 1, " +
                     "experience INTEGER NOT NULL DEFAULT 0, " +
                     "prosperity INTEGER NOT NULL DEFAULT 0, " +
+                    "center_x REAL NOT NULL DEFAULT 0, " +
+                    "center_y REAL NOT NULL DEFAULT 0, " +
+                    "center_z REAL NOT NULL DEFAULT 0, " +
+                    "world TEXT NOT NULL DEFAULT '', " +
                     "created_at DATETIME DEFAULT CURRENT_TIMESTAMP" +
                     ")");
+            
+            // 为旧版数据库迁移：添加位置字段
+            migrateVillageLocationColumns(statement);
             
             // 创建村民表
             statement.execute("CREATE TABLE IF NOT EXISTS villagers (" +
@@ -252,6 +259,32 @@ public class DatabaseManager {
 
         } catch (SQLException e) {
             VillagerPro.getInstance().getLogger().severe("创建数据库表失败: " + e.getMessage());
+        }
+    }
+    
+    /**
+     * 为旧版 villages 表迁移位置字段
+     */
+    private static void migrateVillageLocationColumns(Statement statement) throws SQLException {
+        try {
+            statement.execute("ALTER TABLE villages ADD COLUMN center_x REAL NOT NULL DEFAULT 0");
+        } catch (SQLException e) {
+            // 字段已存在时忽略
+        }
+        try {
+            statement.execute("ALTER TABLE villages ADD COLUMN center_y REAL NOT NULL DEFAULT 0");
+        } catch (SQLException e) {
+            // 字段已存在时忽略
+        }
+        try {
+            statement.execute("ALTER TABLE villages ADD COLUMN center_z REAL NOT NULL DEFAULT 0");
+        } catch (SQLException e) {
+            // 字段已存在时忽略
+        }
+        try {
+            statement.execute("ALTER TABLE villages ADD COLUMN world TEXT NOT NULL DEFAULT ''");
+        } catch (SQLException e) {
+            // 字段已存在时忽略
         }
     }
     

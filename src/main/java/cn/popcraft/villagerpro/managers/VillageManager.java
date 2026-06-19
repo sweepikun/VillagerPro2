@@ -4,6 +4,8 @@ import cn.popcraft.villagerpro.VillagerPro;
 import cn.popcraft.villagerpro.database.DatabaseManager;
 import cn.popcraft.villagerpro.models.Village;
 
+import org.bukkit.Location;
+
 import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
@@ -23,7 +25,7 @@ public class VillageManager {
         
         try (Connection connection = DatabaseManager.getConnection();
              PreparedStatement statement = connection.prepareStatement(
-                     "SELECT id, owner_uuid, name, level, experience, prosperity FROM villages")) {
+                     "SELECT id, owner_uuid, name, level, experience, prosperity, center_x, center_y, center_z, world FROM villages")) {
             
             ResultSet resultSet = statement.executeQuery();
             
@@ -34,7 +36,11 @@ public class VillageManager {
                         resultSet.getString("name"),
                         resultSet.getInt("level"),
                         resultSet.getInt("experience"),
-                        resultSet.getInt("prosperity")
+                        resultSet.getInt("prosperity"),
+                        resultSet.getDouble("center_x"),
+                        resultSet.getDouble("center_y"),
+                        resultSet.getDouble("center_z"),
+                        resultSet.getString("world")
                 );
                 villages.add(village);
                 // 缓存村庄数据
@@ -61,7 +67,7 @@ public class VillageManager {
         
         try (Connection connection = DatabaseManager.getConnection();
              PreparedStatement statement = connection.prepareStatement(
-                     "SELECT id, owner_uuid, name, level, experience, prosperity FROM villages WHERE owner_uuid = ?")) {
+                     "SELECT id, owner_uuid, name, level, experience, prosperity, center_x, center_y, center_z, world FROM villages WHERE owner_uuid = ?")) {
             
             statement.setString(1, ownerUUID.toString());
             ResultSet resultSet = statement.executeQuery();
@@ -94,7 +100,7 @@ public class VillageManager {
     public static Village getVillageById(int id) {
         try (Connection connection = DatabaseManager.getConnection();
              PreparedStatement statement = connection.prepareStatement(
-                     "SELECT id, owner_uuid, name, level, experience, prosperity FROM villages WHERE id = ?")) {
+                     "SELECT id, owner_uuid, name, level, experience, prosperity, center_x, center_y, center_z, world FROM villages WHERE id = ?")) {
             
             statement.setInt(1, id);
             ResultSet resultSet = statement.executeQuery();
@@ -106,7 +112,11 @@ public class VillageManager {
                         resultSet.getString("name"),
                         resultSet.getInt("level"),
                         resultSet.getInt("experience"),
-                        resultSet.getInt("prosperity")
+                        resultSet.getInt("prosperity"),
+                        resultSet.getDouble("center_x"),
+                        resultSet.getDouble("center_y"),
+                        resultSet.getDouble("center_z"),
+                        resultSet.getString("world")
                 );
                 // 缓存村庄数据
                 CacheManager.cacheVillage(village.getOwnerUUID(), village);
@@ -126,6 +136,17 @@ public class VillageManager {
      * @return 创建的村庄对象
      */
     public static Village createVillage(UUID ownerUUID, String name) {
+        return createVillage(ownerUUID, name, null);
+    }
+    
+    /**
+     * 创建村庄（指定位置）
+     * @param ownerUUID 玩家UUID
+     * @param name 村庄名称
+     * @param location 村庄中心位置
+     * @return 创建的村庄对象
+     */
+    public static Village createVillage(UUID ownerUUID, String name, Location location) {
         try (Connection connection = DatabaseManager.getConnection();
              PreparedStatement statement = connection.prepareStatement(
                      "INSERT INTO villages (owner_uuid, name) VALUES (?, ?)",

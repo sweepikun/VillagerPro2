@@ -20,10 +20,14 @@ public class Village {
     private int level;
     private int experience;
     private int prosperity;
+    private double centerX;
+    private double centerY;
+    private double centerZ;
+    private String world;
     private Map<String, Integer> upgrades;
     
     /**
-     * 构造函数
+     * 构造函数（兼容旧代码，不带位置）
      * @param id 村庄ID
      * @param ownerUUID 所有者UUID
      * @param name 村庄名称
@@ -32,12 +36,34 @@ public class Village {
      * @param prosperity 繁荣度
      */
     public Village(int id, UUID ownerUUID, String name, int level, int experience, int prosperity) {
+        this(id, ownerUUID, name, level, experience, prosperity, 0, 0, 0, "");
+    }
+    
+    /**
+     * 构造函数（带村庄中心位置）
+     * @param id 村庄ID
+     * @param ownerUUID 所有者UUID
+     * @param name 村庄名称
+     * @param level 等级
+     * @param experience 经验值
+     * @param prosperity 繁荣度
+     * @param centerX 中心X坐标
+     * @param centerY 中心Y坐标
+     * @param centerZ 中心Z坐标
+     * @param world 世界名
+     */
+    public Village(int id, UUID ownerUUID, String name, int level, int experience, int prosperity,
+                   double centerX, double centerY, double centerZ, String world) {
         this.id = id;
         this.ownerUUID = ownerUUID;
         this.name = name;
         this.level = level;
         this.experience = experience;
         this.prosperity = prosperity;
+        this.centerX = centerX;
+        this.centerY = centerY;
+        this.centerZ = centerZ;
+        this.world = world;
         this.upgrades = null; // 延迟加载
     }
     
@@ -88,6 +114,63 @@ public class Village {
     
     public void setProsperity(int prosperity) {
         this.prosperity = prosperity;
+    }
+    
+    public double getCenterX() {
+        return centerX;
+    }
+    
+    public void setCenterX(double centerX) {
+        this.centerX = centerX;
+    }
+    
+    public double getCenterY() {
+        return centerY;
+    }
+    
+    public void setCenterY(double centerY) {
+        this.centerY = centerY;
+    }
+    
+    public double getCenterZ() {
+        return centerZ;
+    }
+    
+    public void setCenterZ(double centerZ) {
+        this.centerZ = centerZ;
+    }
+    
+    public String getWorld() {
+        return world;
+    }
+    
+    public void setWorld(String world) {
+        this.world = world;
+    }
+    
+    /**
+     * 获取村庄中心位置
+     * @return Bukkit Location，如果世界不存在则返回 null
+     */
+    public org.bukkit.Location getLocation() {
+        org.bukkit.World bukkitWorld = VillagerPro.getInstance().getServer().getWorld(world);
+        if (bukkitWorld == null) {
+            return null;
+        }
+        return new org.bukkit.Location(bukkitWorld, centerX, centerY, centerZ);
+    }
+    
+    /**
+     * 设置村庄中心位置
+     * @param location 位置
+     */
+    public void setLocation(org.bukkit.Location location) {
+        if (location != null && location.getWorld() != null) {
+            this.centerX = location.getX();
+            this.centerY = location.getY();
+            this.centerZ = location.getZ();
+            this.world = location.getWorld().getName();
+        }
     }
     
     /**
@@ -169,8 +252,11 @@ public class Village {
         // 检查是否可以升级
         if (canUpgrade()) {
             int currentLevel = this.level;
-            int requiredExp = VillagerPro.getInstance().getConfig().getInt("village.level_up_experience." + (currentLevel + 1), 100);
+            // 使用 base_exp_per_level 线性增长公式（与 ExperienceManager 保持一致）
+            int baseExp = VillagerPro.getInstance().getConfig().getInt("village.base_exp_per_level", 200);
+            int requiredExp = currentLevel * baseExp;
             if (this.experience >= requiredExp) {
+                this.experience -= requiredExp;
                 this.level++;
                 // 可以在这里添加升级事件通知等逻辑
             }

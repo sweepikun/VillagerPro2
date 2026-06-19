@@ -283,10 +283,12 @@ public class GUIListener implements Listener {
                     }
                     
                     if (skillId != null) {
+                        // 基于当前技能等级计算下一级成本
+                        int currentSkillLevel = VillagerUpgradeManager.getVillagerSkillLevel(villager.getId(), skillId);
                         // 检查是否能支付升级费用
-                        if (VillagerUpgradeManager.canAffordUpgrade(player, profession, skillId)) {
+                        if (VillagerUpgradeManager.canAffordUpgrade(player, profession, skillId, currentSkillLevel + 1)) {
                             // 支付费用
-                            if (VillagerUpgradeManager.payUpgradeCost(player, profession, skillId)) {
+                            if (VillagerUpgradeManager.payUpgradeCost(player, profession, skillId, currentSkillLevel + 1)) {
                                 // 应用升级
                                 if (VillagerUpgradeManager.applyVillagerUpgrade(villager, skillId)) {
                                     player.sendMessage("§a技能升级成功！");
@@ -415,8 +417,9 @@ public class GUIListener implements Listener {
                 
                 Village village = VillageManager.getVillage(player.getUniqueId());
                 if (village != null) {
-                    // 检查是否能支付升级费用
-                    List<CostEntry> costs = VillageUpgradeManager.getUpgradeCosts(upgradeId);
+                    // 基于当前等级计算下一级成本
+                    int currentLevel = VillageUpgradeManager.getVillageUpgradeLevel(village.getId(), upgradeId);
+                    List<CostEntry> costs = VillageUpgradeManager.getUpgradeCosts(upgradeId, currentLevel + 1);
                     if (CostHandler.canAfford(player, costs)) {
                         // 支付费用
                         if (CostHandler.deduct(player, costs)) {

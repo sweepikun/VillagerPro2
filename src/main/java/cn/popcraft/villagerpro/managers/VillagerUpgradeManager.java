@@ -107,7 +107,19 @@ public class VillagerUpgradeManager {
      * @return 是否能支付
      */
     public static boolean canAffordUpgrade(Player player, String profession, String skillId) {
-        List<CostEntry> costs = getUpgradeCosts(profession, skillId);
+        return canAffordUpgrade(player, profession, skillId, 1);
+    }
+    
+    /**
+     * 检查玩家是否能支付技能升级费用（指定下一级等级）
+     * @param player 玩家
+     * @param profession 职业
+     * @param skillId 技能ID
+     * @param nextLevel 要升的等级（通常为 currentLevel + 1）
+     * @return 是否能支付
+     */
+    public static boolean canAffordUpgrade(Player player, String profession, String skillId, int nextLevel) {
+        List<CostEntry> costs = getUpgradeCosts(profession, skillId, nextLevel);
         return CostHandler.canAfford(player, costs);
     }
     
@@ -119,7 +131,19 @@ public class VillagerUpgradeManager {
      * @return 是否支付成功
      */
     public static boolean payUpgradeCost(Player player, String profession, String skillId) {
-        List<CostEntry> costs = getUpgradeCosts(profession, skillId);
+        return payUpgradeCost(player, profession, skillId, 1);
+    }
+    
+    /**
+     * 支付技能升级费用（指定下一级等级）
+     * @param player 玩家
+     * @param profession 职业
+     * @param skillId 技能ID
+     * @param nextLevel 要升的等级（通常为 currentLevel + 1）
+     * @return 是否支付成功
+     */
+    public static boolean payUpgradeCost(Player player, String profession, String skillId, int nextLevel) {
+        List<CostEntry> costs = getUpgradeCosts(profession, skillId, nextLevel);
         return CostHandler.deduct(player, costs);
     }
     
@@ -130,6 +154,17 @@ public class VillagerUpgradeManager {
      * @return 费用列表
      */
     public static List<CostEntry> getUpgradeCosts(String profession, String skillId) {
+        return getUpgradeCosts(profession, skillId, 1);
+    }
+    
+    /**
+     * 获取技能升级费用（指定下一级等级）
+     * @param profession 职业
+     * @param skillId 技能ID
+     * @param nextLevel 要升的等级（通常为 currentLevel + 1）
+     * @return 费用列表
+     */
+    public static List<CostEntry> getUpgradeCosts(String profession, String skillId, int nextLevel) {
         List<CostEntry> costs = new ArrayList<>();
         
         String path = "villager_upgrades." + profession + "." + skillId;
@@ -138,9 +173,6 @@ public class VillagerUpgradeManager {
             double costMultiplier = cn.popcraft.villagerpro.VillagerPro.getInstance().getConfig()
                     .getDouble(path + ".cost_multiplier", 1.0);
             
-            // 获取技能等级
-            int level = 1; // 默认等级为1
-            
             if (cn.popcraft.villagerpro.VillagerPro.getInstance().getConfig().contains(path + ".costs")) {
                 // 从配置中读取成本列表
                 for (Map<?, ?> costEntry : cn.popcraft.villagerpro.VillagerPro.getInstance().getConfig().getMapList(path + ".costs")) {
@@ -148,7 +180,7 @@ public class VillagerUpgradeManager {
                     Number amountObj = (Number) costEntry.get("amount");
                     double baseAmount = amountObj != null ? amountObj.doubleValue() : 0;
                     // 应用成本乘数
-                    double amount = baseAmount * Math.pow(costMultiplier, level - 1);
+                    double amount = baseAmount * Math.pow(costMultiplier, nextLevel - 1);
                     
                     if ("itemsadder".equals(type)) {
                         String item = (String) costEntry.get("item");

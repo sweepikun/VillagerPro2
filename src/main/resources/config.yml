@@ -523,10 +523,13 @@ defense:
         
   # 村庄守护效果
   protection:
+    # 生效范围（方块）
+    range: 50
     # 怪物生成减少（百分比）
     monster_reduction: 10
     # 村民受到攻击时的保护
     villager_protection: true
+
 
 # ==============================
 # 村庄联盟系统

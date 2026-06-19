@@ -427,7 +427,7 @@ public class GUIManager {
                 lore.add("");
                 lore.add("§6升级成本:");
                 List<cn.popcraft.villagerpro.economy.CostEntry> costs = 
-                    VillagerUpgradeManager.getUpgradeCosts(profession, skillId);
+                    VillagerUpgradeManager.getUpgradeCosts(profession, skillId, currentLevel + 1);
                 lore.addAll(cn.popcraft.villagerpro.economy.CostHandler.getDisplayLore(costs));
                 
                 meta.setLore(lore);
@@ -692,7 +692,7 @@ public class GUIManager {
             lore.add("");
             lore.add("§6升级成本:");
             List<cn.popcraft.villagerpro.economy.CostEntry> costs = 
-                VillageUpgradeManager.getUpgradeCosts(upgradeId);
+                VillageUpgradeManager.getUpgradeCosts(upgradeId, currentLevel + 1);
             lore.addAll(cn.popcraft.villagerpro.economy.CostHandler.getDisplayLore(costs));
             
             // 添加升级ID用于后续处理
@@ -774,14 +774,15 @@ public class GUIManager {
     /**
      * 获取升级成本显示Lore
      * @param upgradeId 升级ID
+     * @param currentLevel 当前等级
      * @return 成本Lore列表
      */
-    private static List<String> getUpgradeCostLore(String upgradeId) {
+    private static List<String> getUpgradeCostLore(String upgradeId, int currentLevel) {
         List<String> lore = new java.util.ArrayList<>();
         lore.add("");
         lore.add("§6升级成本:");
         List<cn.popcraft.villagerpro.economy.CostEntry> costs = 
-            cn.popcraft.villagerpro.managers.VillageUpgradeManager.getUpgradeCosts(upgradeId);
+            cn.popcraft.villagerpro.managers.VillageUpgradeManager.getUpgradeCosts(upgradeId, currentLevel + 1);
         lore.addAll(cn.popcraft.villagerpro.economy.CostHandler.getDisplayLore(costs));
         return lore;
     }

@@ -11,6 +11,11 @@ public class EventManager implements Listener {
      * 初始化事件管理器
      */
     public static void initialize() {
+        // 注册防御事件监听器
+        if (VillagerPro.getInstance().getConfig().getBoolean("features.defense", true)) {
+            VillagerPro.getInstance().getServer().getPluginManager().registerEvents(new DefenseListener(), VillagerPro.getInstance());
+        }
+        
         // 注册GUI事件监听器
         VillagerPro.getInstance().getServer().getPluginManager().registerEvents(new GUIListener(), VillagerPro.getInstance());
         

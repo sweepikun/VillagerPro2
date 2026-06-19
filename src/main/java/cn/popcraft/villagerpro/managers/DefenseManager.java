@@ -5,6 +5,7 @@ import cn.popcraft.villagerpro.database.DatabaseManager;
 import cn.popcraft.villagerpro.economy.CostEntry;
 import cn.popcraft.villagerpro.economy.CostHandler;
 import cn.popcraft.villagerpro.models.Village;
+import cn.popcraft.villagerpro.models.VillagerData;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
@@ -18,8 +19,11 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Random;
+import java.util.UUID;
 
 /**
  * 防御系统管理器
@@ -32,6 +36,8 @@ public class DefenseManager {
     private final CostHandler costHandler;
     private final Random random;
     private final List<ActiveGuard> activeGuards;
+    private final Map<Integer, Boolean> activeShelters;
+    private final Map<Integer, Map<UUID, Location>> shelterOriginalLocations;
     
     public static DefenseManager getInstance() {
         if (instance == null) {
@@ -45,6 +51,8 @@ public class DefenseManager {
         this.costHandler = new CostHandler();
         this.random = new Random();
         this.activeGuards = new java.util.concurrent.CopyOnWriteArrayList<>();
+        this.activeShelters = new HashMap<>();
+        this.shelterOriginalLocations = new HashMap<>();
         
         // 启动定时任务
         startDefenseTasks();
@@ -69,8 +77,7 @@ public class DefenseManager {
         }
         
         // 检查召唤成本
-        List<String> costList = plugin.getConfig().getStringList("defense.guard.cost");
-        List<CostEntry> parsedCosts = parseCosts(costList);
+        List<CostEntry> parsedCosts = parseDefenseCosts("defense.guard.cost");
         if (!costHandler.canAfford(player, parsedCosts)) {
             player.sendMessage("§c资源不足，无法召唤守卫");
             return false;
@@ -148,6 +155,8 @@ public class DefenseManager {
         
         if (worldTime >= triggerTime && worldTime < (triggerTime + 200)) { // 避免重复触发
             activateShelter(village);
+        } else if (worldTime >= 0 && worldTime < 1000) { // 天亮后解除避难
+            deactivateShelter(village);
         }
     }
     
@@ -155,21 +164,91 @@ public class DefenseManager {
      * 激活避难所
      */
     private void activateShelter(Village village) {
-        // 获取村庄中心位置
-        Location center = getVillageCenter(village);
-        if (center == null) return;
+        if (activeShelters.getOrDefault(village.getId(), false)) {
+            return; // 已在避难状态，避免重复传送
+        }
         
-        // 传送所有村民到安全位置
-        // 这里需要根据实际的村民管理来传送村民
-        // 可以通过Bukkit API找到附近的村民并传送
+        Location center = getVillageCenter(village);
+        if (center == null || center.getWorld() == null) return;
+        
+        Location shelterLocation = findSafeShelterLocation(center);
+        Map<UUID, Location> originalLocations = new HashMap<>();
+        
+        List<VillagerData> villagers = VillagerManager.getVillagers(village.getId());
+        for (VillagerData villager : villagers) {
+            org.bukkit.entity.Villager entity = villager.getEntity();
+            if (entity == null || !entity.isValid()) continue;
+            
+            Location originalLocation = entity.getLocation().clone();
+            originalLocations.put(entity.getUniqueId(), originalLocation);
+            
+            entity.teleport(shelterLocation);
+            entity.setInvulnerable(true);
+        }
+        
+        activeShelters.put(village.getId(), true);
+        shelterOriginalLocations.put(village.getId(), originalLocations);
         
         // 通知玩家
-        List<Player> nearbyPlayers = center.getWorld().getPlayers();
-        for (Player player : nearbyPlayers) {
+        for (Player player : center.getWorld().getPlayers()) {
             if (player.getLocation().distance(center) <= 50) {
                 player.sendMessage("§e夜晚来临，村民们已进入避难所");
             }
         }
+    }
+    
+    /**
+     * 关闭避难所（白天调用）
+     */
+    private void deactivateShelter(Village village) {
+        if (!activeShelters.getOrDefault(village.getId(), false)) {
+            return;
+        }
+        
+        Location center = getVillageCenter(village);
+        Map<UUID, Location> originalLocations = shelterOriginalLocations.get(village.getId());
+        
+        List<VillagerData> villagers = VillagerManager.getVillagers(village.getId());
+        for (VillagerData villager : villagers) {
+            org.bukkit.entity.Villager entity = villager.getEntity();
+            if (entity == null || !entity.isValid()) continue;
+            
+            Location originalLocation = originalLocations != null ? originalLocations.get(entity.getUniqueId()) : null;
+            if (originalLocation != null && originalLocation.getWorld() != null) {
+                entity.teleport(originalLocation);
+            }
+            entity.setInvulnerable(false);
+        }
+        
+        activeShelters.put(village.getId(), false);
+        if (originalLocations != null) {
+            originalLocations.clear();
+        }
+        
+        if (center != null && center.getWorld() != null) {
+            for (Player player : center.getWorld().getPlayers()) {
+                if (player.getLocation().distance(center) <= 50) {
+                    player.sendMessage("§a天亮了，村民们离开避难所");
+                }
+            }
+        }
+    }
+    
+    /**
+     * 寻找安全的避难所位置
+     */
+    private Location findSafeShelterLocation(Location center) {
+        Location shelter = center.clone();
+        // 优先在村庄中心上方寻找空气位置
+        for (int y = 3; y >= -3; y--) {
+            Location candidate = center.clone().add(0, y, 0);
+            if (candidate.getBlock().getType() == Material.AIR && 
+                candidate.clone().add(0, 1, 0).getBlock().getType() == Material.AIR) {
+                return candidate;
+            }
+        }
+        //  fallback：返回中心上方 3 格，即使可能有方块也会因无敌而不受伤害
+        return center.clone().add(0, 3, 0);
     }
     
     /**
@@ -261,9 +340,7 @@ public class DefenseManager {
      * 获取村庄中心位置
      */
     private Location getVillageCenter(Village village) {
-        // 这里需要根据实际的村庄数据模型来获取中心位置
-        // 临时实现：返回世界出生点
-        return plugin.getServer().getWorlds().get(0).getSpawnLocation();
+        return village.getLocation();
     }
     
     /**
@@ -325,28 +402,79 @@ public class DefenseManager {
     }
     
     /**
-     * 解析成本字符串列表为CostEntry列表
+     * 解析防御成本配置（兼容 YAML 对象列表与旧版字符串列表）
+     */
+    private List<CostEntry> parseDefenseCosts(String path) {
+        List<CostEntry> costs = new ArrayList<>();
+        List<?> costList = plugin.getConfig().getList(path);
+        if (costList == null) {
+            return costs;
+        }
+
+        for (Object obj : costList) {
+            if (obj instanceof Map) {
+                @SuppressWarnings("unchecked")
+                Map<String, Object> costMap = (Map<String, Object>) obj;
+                String type = String.valueOf(costMap.get("type"));
+                Object amountObj = costMap.get("amount");
+                double amount = 0;
+                if (amountObj instanceof Number) {
+                    amount = ((Number) amountObj).doubleValue();
+                } else if (amountObj != null) {
+                    try {
+                        amount = Double.parseDouble(String.valueOf(amountObj));
+                    } catch (NumberFormatException ignored) {
+                    }
+                }
+                if ("itemsadder".equalsIgnoreCase(type)) {
+                    String item = costMap.get("item") != null ? String.valueOf(costMap.get("item")) : "";
+                    costs.add(new CostEntry(type, amount, item));
+                } else {
+                    costs.add(new CostEntry(type, amount));
+                }
+            } else if (obj instanceof String) {
+                costs.addAll(parseLegacyCostString((String) obj));
+            }
+        }
+
+        return costs;
+    }
+
+    /**
+     * 解析旧版字符串成本格式
+     */
+    private List<CostEntry> parseLegacyCostString(String costString) {
+        List<CostEntry> costs = new ArrayList<>();
+        try {
+            String[] parts = costString.split(":");
+            if (parts.length >= 2) {
+                String type = parts[0].toLowerCase();
+                double amount = Double.parseDouble(parts[1]);
+
+                if ("itemsadder".equals(type) && parts.length >= 3) {
+                    String item = parts[2];
+                    costs.add(new CostEntry(type, amount, item));
+                } else {
+                    costs.add(new CostEntry(type, amount));
+                }
+            }
+        } catch (NumberFormatException | ArrayIndexOutOfBoundsException e) {
+            plugin.getLogger().warning("无效的成本格式: " + costString);
+        }
+        return costs;
+    }
+
+    /**
+     * 解析成本字符串列表为CostEntry列表（保留旧方法名以兼容）
      * 格式: "vault:100", "playerpoints:50", "itemsadder:10:item_id"
      */
     private List<CostEntry> parseCosts(List<String> costStrings) {
         List<CostEntry> costs = new ArrayList<>();
+        if (costStrings == null) {
+            return costs;
+        }
         for (String costString : costStrings) {
-            try {
-                String[] parts = costString.split(":");
-                if (parts.length >= 2) {
-                    String type = parts[0].toLowerCase();
-                    double amount = Double.parseDouble(parts[1]);
-                    
-                    if ("itemsadder".equals(type) && parts.length >= 3) {
-                        String item = parts[2];
-                        costs.add(new CostEntry(type, amount, item));
-                    } else {
-                        costs.add(new CostEntry(type, amount));
-                    }
-                }
-            } catch (NumberFormatException | ArrayIndexOutOfBoundsException e) {
-                plugin.getLogger().warning("无效的成本格式: " + costString);
-            }
+            costs.addAll(parseLegacyCostString(costString));
         }
         return costs;
     }

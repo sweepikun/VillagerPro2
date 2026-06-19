@@ -147,7 +147,18 @@ public class VillageUpgradeManager {
      * @return 是否能支付
      */
     public static boolean canAffordUpgrade(Player player, String upgradeId) {
-        List<CostEntry> costs = getUpgradeCosts(upgradeId);
+        return canAffordUpgrade(player, upgradeId, 1);
+    }
+    
+    /**
+     * 检查玩家是否能支付升级费用（指定下一级等级）
+     * @param player 玩家
+     * @param upgradeId 升级ID
+     * @param nextLevel 要升的等级（通常为 currentLevel + 1）
+     * @return 是否能支付
+     */
+    public static boolean canAffordUpgrade(Player player, String upgradeId, int nextLevel) {
+        List<CostEntry> costs = getUpgradeCosts(upgradeId, nextLevel);
         return CostHandler.canAfford(player, costs);
     }
     
@@ -158,7 +169,18 @@ public class VillageUpgradeManager {
      * @return 是否支付成功
      */
     public static boolean payUpgradeCost(Player player, String upgradeId) {
-        List<CostEntry> costs = getUpgradeCosts(upgradeId);
+        return payUpgradeCost(player, upgradeId, 1);
+    }
+    
+    /**
+     * 支付升级费用（指定下一级等级）
+     * @param player 玩家
+     * @param upgradeId 升级ID
+     * @param nextLevel 要升的等级（通常为 currentLevel + 1）
+     * @return 是否支付成功
+     */
+    public static boolean payUpgradeCost(Player player, String upgradeId, int nextLevel) {
+        List<CostEntry> costs = getUpgradeCosts(upgradeId, nextLevel);
         return CostHandler.deduct(player, costs);
     }
     
@@ -168,6 +190,16 @@ public class VillageUpgradeManager {
      * @return 费用列表
      */
     public static List<CostEntry> getUpgradeCosts(String upgradeId) {
+        return getUpgradeCosts(upgradeId, 1);
+    }
+    
+    /**
+     * 获取升级费用（指定下一级等级）
+     * @param upgradeId 升级ID
+     * @param nextLevel 要升的等级（通常为 currentLevel + 1）
+     * @return 费用列表
+     */
+    public static List<CostEntry> getUpgradeCosts(String upgradeId, int nextLevel) {
         List<CostEntry> costs = new ArrayList<>();
         
         String path = "village_upgrades.available_upgrades." + upgradeId + ".costs";

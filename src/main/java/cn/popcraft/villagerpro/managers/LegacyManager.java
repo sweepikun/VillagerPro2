@@ -385,61 +385,73 @@ public class LegacyManager {
      * 检查是否有传承卷轴
      */
     private boolean hasLegacyScroll(Player player, int amount) {
-        // 检查玩家背包中的传承卷轴
         String scrollItem = plugin.getConfig().getString("legacy.config.scroll_item", "villagerpro:legacy_scroll");
         int found = 0;
-        
+
         for (ItemStack item : player.getInventory().getContents()) {
-            if (item != null && item.getType() != Material.AIR) {
-                if (item.getType().name().equals(scrollItem) || 
-                    item.hasItemMeta() && item.getItemMeta().hasLore() && 
-                    item.getItemMeta().getLore().toString().contains("传承卷轴")) {
-                    found += item.getAmount();
-                    if (found >= amount) {
-                        return true;
-                    }
+            if (item != null && item.getType() != Material.AIR && isLegacyScrollItem(item, scrollItem)) {
+                found += item.getAmount();
+                if (found >= amount) {
+                    return true;
                 }
             }
         }
-        
+
         return false;
     }
-    
+
     /**
      * 消耗传承卷轴
      */
     private boolean consumeLegacyScroll(Player player, int amount) {
-        // 从玩家背包中移除传承卷轴
         String scrollItem = plugin.getConfig().getString("legacy.config.scroll_item", "villagerpro:legacy_scroll");
         int toConsume = amount;
-        
+
         for (ItemStack item : player.getInventory().getContents()) {
-            if (item != null && item.getType() != Material.AIR) {
-                if (item.getType().name().equals(scrollItem) || 
-                    item.hasItemMeta() && item.getItemMeta().hasLore() && 
-                    item.getItemMeta().getLore().toString().contains("传承卷轴")) {
-                    
-                    int itemAmount = item.getAmount();
-                    if (itemAmount <= toConsume) {
-                        // 移除整个物品
-                        player.getInventory().remove(item);
-                        toConsume -= itemAmount;
-                    } else {
-                        // 移除部分物品
-                        item.setAmount(itemAmount - toConsume);
-                        toConsume = 0;
-                    }
-                    
-                    if (toConsume == 0) {
-                        break;
-                    }
+            if (item != null && item.getType() != Material.AIR && isLegacyScrollItem(item, scrollItem)) {
+                int itemAmount = item.getAmount();
+                if (itemAmount <= toConsume) {
+                    player.getInventory().remove(item);
+                    toConsume -= itemAmount;
+                } else {
+                    item.setAmount(itemAmount - toConsume);
+                    toConsume = 0;
+                }
+
+                if (toConsume == 0) {
+                    break;
                 }
             }
         }
-        
+
         return toConsume == 0;
     }
-    
+
+    /**
+     * 判断物品是否为传承卷轴
+     */
+    private boolean isLegacyScrollItem(ItemStack item, String scrollItem) {
+        // 如果配置的是标准材料名，则先按材料匹配
+        Material configuredMaterial = Material.getMaterial(scrollItem.toUpperCase());
+        if (configuredMaterial != null && item.getType() == configuredMaterial) {
+            // 标准材料需同时满足 lore 含“传承卷轴”，避免与普通物品混淆
+            return hasScrollLore(item);
+        }
+        // 自定义物品 ID 或带命名空间的，通过 lore 判断
+        return hasScrollLore(item);
+    }
+
+    private boolean hasScrollLore(ItemStack item) {
+        if (!item.hasItemMeta()) {
+            return false;
+        }
+        ItemMeta meta = item.getItemMeta();
+        if (!meta.hasLore()) {
+            return false;
+        }
+        return meta.getLore().toString().contains("传承卷轴");
+    }
+
     /**
      * 移除原村民
      */
@@ -454,7 +466,28 @@ public class LegacyManager {
      * 保存村民数据到数据库
      */
     private int saveVillagerToDatabase(VillagerData villager) {
-        // 简化实现，返回-1
+        try (Connection conn = DatabaseManager.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                 "INSERT INTO villagers (village_id, entity_uuid, profession, level, experience, follow_mode) VALUES (?, ?, ?, ?, ?, ?)",
+                 PreparedStatement.RETURN_GENERATED_KEYS)) {
+            
+            stmt.setInt(1, villager.getVillageId());
+            stmt.setString(2, villager.getEntityUUID().toString());
+            stmt.setString(3, villager.getProfession());
+            stmt.setInt(4, villager.getLevel());
+            stmt.setInt(5, villager.getExperience());
+            stmt.setString(6, villager.getFollowMode());
+            
+            int affectedRows = stmt.executeUpdate();
+            if (affectedRows > 0) {
+                ResultSet generatedKeys = stmt.getGeneratedKeys();
+                if (generatedKeys.next()) {
+                    return generatedKeys.getInt(1);
+                }
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().severe("保存继承村民到数据库失败: " + e.getMessage());
+        }
         return -1;
     }
     
