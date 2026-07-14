@@ -62,6 +62,10 @@ public class DefenseManager {
      * 召唤守卫
      */
     public boolean summonGuard(Player player, Village village) {
+        if (village == null || !village.getOwnerUUID().equals(player.getUniqueId())) {
+            player.sendMessage("§c你不能为其他村庄召唤守卫");
+            return false;
+        }
         // 检查功能是否启用
         if (!plugin.getConfig().getBoolean("features.defense", true) || 
             !plugin.getConfig().getBoolean("defense.enabled", true)) {
@@ -76,6 +80,12 @@ public class DefenseManager {
             return false;
         }
         
+        Location summonLocation = getVillageCenter(village);
+        if (summonLocation == null || summonLocation.getWorld() == null) {
+            player.sendMessage("§c无法确定村庄中心位置");
+            return false;
+        }
+
         // 检查召唤成本
         List<CostEntry> parsedCosts = parseDefenseCosts("defense.guard.cost");
         if (!costHandler.canAfford(player, parsedCosts)) {
@@ -87,17 +97,15 @@ public class DefenseManager {
             return false;
         }
         
-        // 生成守卫
-        Location summonLocation = getVillageCenter(village);
-        if (summonLocation == null) {
-            player.sendMessage("§c无法确定村庄中心位置");
-            return false;
-        }
-        
         // 生成铁傀儡守卫
-        IronGolem guard = summonLocation.getWorld().spawn(summonLocation, IronGolem.class);
-        if (guard == null) {
-            player.sendMessage("§c守卫生成失败");
+        IronGolem guard;
+        try {
+            guard = summonLocation.getWorld().spawn(summonLocation, IronGolem.class);
+        } catch (RuntimeException e) {
+            boolean refunded = CostHandler.refund(player, parsedCosts);
+            plugin.getLogger().warning("守卫生成失败: " + e.getMessage());
+            player.sendMessage(refunded ? "§c守卫生成失败，费用已退还"
+                    : "§c守卫生成失败且费用未完整退还，请联系管理员");
             return false;
         }
         
@@ -426,7 +434,7 @@ public class DefenseManager {
                     } catch (NumberFormatException ignored) {
                     }
                 }
-                if ("itemsadder".equalsIgnoreCase(type)) {
+                if ("itemsadder".equalsIgnoreCase(type) || "item".equalsIgnoreCase(type)) {
                     String item = costMap.get("item") != null ? String.valueOf(costMap.get("item")) : "";
                     costs.add(new CostEntry(type, amount, item));
                 } else {
@@ -451,7 +459,7 @@ public class DefenseManager {
                 String type = parts[0].toLowerCase();
                 double amount = Double.parseDouble(parts[1]);
 
-                if ("itemsadder".equals(type) && parts.length >= 3) {
+                if (("itemsadder".equals(type) || "item".equals(type)) && parts.length >= 3) {
                     String item = parts[2];
                     costs.add(new CostEntry(type, amount, item));
                 } else {

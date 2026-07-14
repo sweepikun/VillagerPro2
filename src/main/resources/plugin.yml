@@ -11,16 +11,17 @@ softdepend: [PlayerPoints, ItemsAdder]
 libraries:
   - com.zaxxer:HikariCP:5.0.1
   - org.xerial:sqlite-jdbc:3.42.0.0
+  - com.mysql:mysql-connector-j:8.4.0
 
 commands:
   village:
     description: 管理村庄
-    usage: /<command> [create|info|warehouse|upgrade|reload]
+    usage: /<command> [create|info|warehouse|orders|stats|rules|building|market|policy|crisis|caravan|upgrade|reload|database]
     aliases: [vill, vl]
     permission: villagerpro.village
   villager:
     description: 管理村民
-    usage: /<command> [list|recruit|info|remove|upgrade]
+    usage: /<command> [list|recruit|info|remove|upgrade|specialize|needs|workstation]
     aliases: [villagers, vlr]
     permission: villagerpro.villager
   upgrade:
@@ -30,10 +31,23 @@ commands:
     permission: villagerpro.upgrade
 
 permissions:
+  villagerpro.village:
+    description: 使用村庄命令
+    default: true
+  villagerpro.villager:
+    description: 使用村民命令
+    default: true
+  villagerpro.upgrade:
+    description: 使用升级命令
+    default: true
+  villagerpro.database.migrate:
+    description: 在 SQLite 与 MySQL 之间迁移全部插件数据
+    default: op
   villagerpro.*:
     description: VillagerPro的所有权限
     default: op
     children:
+      villagerpro.database.migrate: true
       villagerpro.village.*:
         description: 村庄相关所有权限
         children:
@@ -70,3 +84,24 @@ permissions:
           villagerpro.villager.upgrade:
             description: 升级村民
             default: true
+          villagerpro.village.building:
+            description: 登记和管理村庄功能建筑
+            default: true
+          villagerpro.village.market:
+            description: 查看行情并与动态市场交易
+            default: true
+          villagerpro.village.policy:
+            description: 查看和选择村庄政策
+            default: true
+          villagerpro.village.crisis:
+            description: 查看危机并提交救援物资
+            default: true
+          villagerpro.village.crisis.trigger:
+            description: 手动触发村庄危机用于测试
+            default: op
+          villagerpro.village.caravan:
+            description: 派遣商队并领取回程货物
+            default: true
+          villagerpro.village.orders.resolve:
+            description: 人工确认 Vault 调用期间中断的订单金币状态
+            default: op

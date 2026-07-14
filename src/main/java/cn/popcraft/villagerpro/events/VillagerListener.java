@@ -40,6 +40,13 @@ public class VillagerListener implements Listener {
         if (villagerData == null) {
             return;
         }
+        cn.popcraft.villagerpro.models.Village village =
+                cn.popcraft.villagerpro.managers.VillageManager.getVillage(player.getUniqueId());
+        if (village == null || villagerData.getVillageId() != village.getId()) {
+            player.sendMessage("§c你只能管理自己村庄的村民");
+            event.setCancelled(true);
+            return;
+        }
         
         ItemStack handItem = player.getInventory().getItemInMainHand();
         Material handType = handItem != null ? handItem.getType() : Material.AIR;
@@ -107,8 +114,26 @@ public class VillagerListener implements Listener {
         // 检查是否是我们管理的村民
         VillagerData villagerData = VillagerManager.getVillager(entity.getUniqueId());
         if (villagerData != null) {
-            // 可以在这里添加保护逻辑，例如只允许村庄拥有者伤害村民
-            // 目前留空，后续可以扩展
+            // 获取村庄拥有者
+            cn.popcraft.villagerpro.models.Village village =
+                cn.popcraft.villagerpro.managers.VillageManager.getVillageById(villagerData.getVillageId());
+            if (village == null) return;
+
+            // 如果伤害来源是其他玩家（非村庄拥有者），取消伤害
+            if (event.getDamager() instanceof org.bukkit.entity.Player) {
+                org.bukkit.entity.Player damager = (org.bukkit.entity.Player) event.getDamager();
+                if (!damager.getUniqueId().equals(village.getOwnerUUID())
+                    && !damager.hasPermission("villagerpro.admin")) {
+                    event.setCancelled(true);
+                    damager.sendMessage("§c你不能伤害其他村庄的村民！");
+                }
+            } else if (event.getDamager() instanceof org.bukkit.entity.Monster) {
+                org.bukkit.entity.Player owner = org.bukkit.Bukkit.getPlayer(village.getOwnerUUID());
+                if (owner != null) {
+                    PersonalityManager.getInstance()
+                            .interactWithVillager(owner, villagerData, "protect");
+                }
+            }
         }
     }
 }

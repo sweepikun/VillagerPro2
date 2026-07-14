@@ -3,6 +3,8 @@ package cn.popcraft.villagerpro.models;
 import cn.popcraft.villagerpro.VillagerPro;
 import cn.popcraft.villagerpro.database.DatabaseManager;
 import cn.popcraft.villagerpro.managers.VillageUpgradeManager;
+import cn.popcraft.villagerpro.managers.BuildingManager;
+import cn.popcraft.villagerpro.managers.PolicyManager;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -186,7 +188,8 @@ public class Village {
         Map<String, Integer> villageUpgrades = getUpgrades();
         Integer capacityUpgrade = villageUpgrades.get("villager_capacity");
         if (capacityUpgrade != null) {
-            levelBonus += capacityUpgrade; // 每级基建扩张增加1个村民上限
+            levelBonus += capacityUpgrade * VillageUpgradeManager.getIntEffect(
+                    "villager_capacity", "capacity_per_level", 1);
         }
         
         return baseLimit + levelBonus;
@@ -205,10 +208,12 @@ public class Village {
         Map<String, Integer> villageUpgrades = getUpgrades();
         Integer warehouseUpgrade = villageUpgrades.get("warehouse_expansion");
         if (warehouseUpgrade != null) {
-            levelBonus += warehouseUpgrade * 50; // 每级仓储扩容增加50容量
+            levelBonus += warehouseUpgrade * VillageUpgradeManager.getIntEffect(
+                    "warehouse_expansion", "capacity_per_level", 50);
         }
         
-        return baseCapacity + levelBonus;
+        return PolicyManager.applyWarehouseCapacity(id,
+                baseCapacity + levelBonus + BuildingManager.getWarehouseCapacityBonus(id));
     }
     
     /**
@@ -220,6 +225,10 @@ public class Village {
             upgrades = VillageUpgradeManager.getVillageUpgrades(id);
         }
         return upgrades;
+    }
+
+    public void reloadUpgrades() {
+        this.upgrades = VillageUpgradeManager.getVillageUpgrades(id);
     }
     
     /**
@@ -249,18 +258,6 @@ public class Village {
      */
     public void addExperience(int exp) {
         this.experience += exp;
-        // 检查是否可以升级
-        if (canUpgrade()) {
-            int currentLevel = this.level;
-            // 使用 base_exp_per_level 线性增长公式（与 ExperienceManager 保持一致）
-            int baseExp = VillagerPro.getInstance().getConfig().getInt("village.base_exp_per_level", 200);
-            int requiredExp = currentLevel * baseExp;
-            if (this.experience >= requiredExp) {
-                this.experience -= requiredExp;
-                this.level++;
-                // 可以在这里添加升级事件通知等逻辑
-            }
-        }
     }
     
     /**

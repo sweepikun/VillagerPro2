@@ -3,7 +3,14 @@ package cn.popcraft.villagerpro.gui;
 import cn.popcraft.villagerpro.VillagerPro;
 import cn.popcraft.villagerpro.economy.CostEntry;
 import cn.popcraft.villagerpro.economy.CostHandler;
+import cn.popcraft.villagerpro.database.DatabaseManager;
+import cn.popcraft.villagerpro.database.OperationTransactions;
+import cn.popcraft.villagerpro.managers.PolicyManager;
+import cn.popcraft.villagerpro.managers.VillageManager;
 import cn.popcraft.villagerpro.managers.VisitorManager;
+import cn.popcraft.villagerpro.managers.WarehouseManager;
+import cn.popcraft.villagerpro.managers.WarehouseRuleManager;
+import cn.popcraft.villagerpro.models.Village;
 import cn.popcraft.villagerpro.models.VisitorData;
 import org.bukkit.Bukkit;
 import org.bukkit.ChatColor;
@@ -15,11 +22,18 @@ import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
 import org.bukkit.persistence.PersistentDataContainer;
 import org.bukkit.persistence.PersistentDataType;
+import org.bukkit.configuration.ConfigurationSection;
 
+import java.sql.Connection;
+import java.sql.PreparedStatement;
+import java.sql.ResultSet;
+import java.sql.SQLException;
 import java.util.ArrayList;
-import java.util.HashMap;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 /**
@@ -30,6 +44,7 @@ public class VisitorGUIManager {
     
     private static final String GUI_PREFIX = "§f[VP] ";
     private static final NamespacedKey TAG_KEY = new NamespacedKey(VillagerPro.getInstance(), "visitor_tag");
+    private static final int[] CONTENT_SLOTS = {9, 10, 11, 12, 14, 15, 16, 17};
     
     // 节日增益：festivalName -> 到期时间戳
     private static final Map<String, Long> activeFestivalBoosts = new ConcurrentHashMap<>();
@@ -58,7 +73,7 @@ public class VisitorGUIManager {
         gui.setItem(13, visitorInfo);
         
         // 商人商品（从配置文件加载）
-        addMerchantItems(gui, visitor);
+        addMerchantItems(gui, visitor, player);
         
         // 关闭按钮
         addCloseButton(gui, 26);
@@ -117,8 +132,8 @@ public class VisitorGUIManager {
             "§7停留时间: §f" + getRemainingTime(visitor) + " 分钟",
             "",
             "§7节日快乐！",
-            "§7节日期间村庄产出+50%！",
-            "§7快来领取节日奖励吧！"
+            "§7每种节日都有独立奖励与效果",
+            "§7本周期内每项奖励只能领取一次"
         ));
         visitorInfo.setItemMeta(infoMeta);
         gui.setItem(13, visitorInfo);
@@ -135,7 +150,7 @@ public class VisitorGUIManager {
     /**
      * 添加商人商品到GUI
      */
-    private static void addMerchantItems(Inventory gui, VisitorData visitor) {
+    private static void addMerchantItems(Inventory gui, VisitorData visitor, Player player) {
         VillagerPro plugin = VillagerPro.getInstance();
         Object itemsObj = plugin.getConfig().get("visitors.merchant.items");
         if (!(itemsObj instanceof java.util.List)) return;
@@ -143,9 +158,9 @@ public class VisitorGUIManager {
         @SuppressWarnings("unchecked")
         java.util.List<Object> itemsList = (java.util.List<Object>) itemsObj;
         
-        int slot = 10;
+        int slotIndex = 0;
         for (Object itemObj : itemsList) {
-            if (slot >= 17) break; // 最多显示8个商品
+            if (slotIndex >= CONTENT_SLOTS.length) break;
             
             if (!(itemObj instanceof Map)) continue;
             @SuppressWarnings("unchecked")
@@ -156,6 +171,14 @@ public class VisitorGUIManager {
                 String name = (String) itemData.getOrDefault("name", itemType);
                 String description = (String) itemData.getOrDefault("description", "");
                 String rarity = (String) itemData.getOrDefault("rarity", "common");
+                int productAmount = Math.max(1, readInt(itemData.get("amount"), 1));
+                String productId = merchantProductId(itemData);
+                int stockLimit = Math.max(1, readInt(itemData.get("stock"), 1));
+                int perPlayerLimit = Math.max(1, readInt(itemData.get("per_player_limit"), 1));
+                MerchantStock stock = loadMerchantStock(visitor.getId(), productId,
+                        player.getUniqueId().toString(), stockLimit);
+                int remainingStock = Math.max(0, stockLimit - stock.totalPurchased());
+                int remainingPersonal = Math.max(0, perPlayerLimit - stock.playerPurchased());
                 
                 // 根据稀有度设置颜色
                 String color = getRarityColor(rarity);
@@ -178,7 +201,7 @@ public class VisitorGUIManager {
                 for (int i = 0; i < prices.size(); i++) {
                     Map<String, Object> priceData = prices.get(i);
                     String priceType = (String) priceData.get("type");
-                    double amount = (double) priceData.get("amount");
+                    double amount = readDouble(priceData.get("amount"), 0);
                     
                     switch (priceType.toLowerCase()) {
                         case "vault":
@@ -188,7 +211,12 @@ public class VisitorGUIManager {
                             priceText += "§b" + (int)amount + "点券";
                             break;
                         case "itemsadder":
-                            priceText += "§5" + amount + "自定义物品";
+                            priceText += "§5" + (int) amount + " x "
+                                    + priceData.getOrDefault("item", "自定义物品");
+                            break;
+                        case "item":
+                            priceText += "§f" + (int) amount + " x "
+                                    + priceData.getOrDefault("item", "原版物品");
                             break;
                     }
                     if (i < prices.size() - 1) priceText += " §7+ ";
@@ -196,18 +224,21 @@ public class VisitorGUIManager {
                 
                 itemMeta.setLore(java.util.Arrays.asList(
                     priceText,
+                    "§7数量: §f" + productAmount,
+                    "§7本批库存: §f" + remainingStock + "/" + stockLimit,
+                    "§7个人限购: §f" + stock.playerPurchased() + "/" + perPlayerLimit,
                     "",
                     "§7" + description,
                     "",
-                    "§a左键购买"
+                    remainingStock <= 0 ? "§c本批商品已售罄"
+                            : (remainingPersonal <= 0 ? "§c你已达到限购数量" : "§a左键购买")
                 ));
                 item.setItemMeta(itemMeta);
                 
                 // 设置额外数据用于购买处理
-                setItemTag(item, "merchant:" + name);
+                setItemTag(item, "merchant:" + visitor.getId() + ":" + productId);
                 
-                gui.setItem(slot, item);
-                slot++;
+                gui.setItem(CONTENT_SLOTS[slotIndex++], item);
                 
             } catch (Exception e) {
                 VillagerPro.getInstance().getLogger().warning("处理商人商品时出错: " + e.getMessage());
@@ -221,14 +252,13 @@ public class VisitorGUIManager {
     private static void addTravelerDeals(Inventory gui, VisitorData visitor, Player player) {
         VillagerPro plugin = VillagerPro.getInstance();
         Object dealsObj = plugin.getConfig().get("visitors.traveler.deals");
-        if (!(dealsObj instanceof java.util.List)) return;
+        List<?> dealsList = dealsObj instanceof List<?> list ? list : List.of();
+        Map<String, TravelerQuest> storedQuests = loadTravelerQuests(player, visitor.getId());
+        Set<String> renderedNames = new HashSet<>();
         
-        @SuppressWarnings("unchecked")
-        java.util.List<Object> dealsList = (java.util.List<Object>) dealsObj;
-        
-        int slot = 10;
+        int slotIndex = 0;
         for (Object dealObj : dealsList) {
-            if (slot >= 17) break; // 最多显示7个委托
+            if (slotIndex >= CONTENT_SLOTS.length) break;
             
             if (!(dealObj instanceof Map)) continue;
             @SuppressWarnings("unchecked")
@@ -244,36 +274,61 @@ public class VisitorGUIManager {
                 String rewardType = (String) rewardData.get("item");
                 int rewardAmount = (Integer) rewardData.get("amount");
                 String rewardName = (String) rewardData.getOrDefault("name", rewardType);
-                
-                Material material = Material.valueOf(itemType);
-                ItemStack item = new ItemStack(material);
-                ItemMeta itemMeta = item.getItemMeta();
-                itemMeta.setDisplayName("§e" + name);
-                
-                // 检查玩家是否已接受或已完成此委托
-                boolean accepted = isDealAccepted(player, name);
-                boolean completed = accepted && hasItemInInventory(player, itemType, amount);
-                String statusPrefix = completed ? "§a✅ " : (accepted ? "§e⏳ " : "§7");
-                
-                itemMeta.setLore(java.util.Arrays.asList(
-                    statusPrefix + "§7描述: " + description,
-                    "§7需要: §f" + amount + " x " + itemType,
-                    "§7奖励: §a" + rewardAmount + " x " + rewardName,
-                    "",
-                    completed ? "§a左键交付委托" : (accepted ? "§7背包中物品不足" : "§a左键接受委托")
-                ));
-                item.setItemMeta(itemMeta);
-                
-                // 设置额外数据用于委托处理
-                setItemTag(item, "traveler:" + name);
-                
-                gui.setItem(slot, item);
-                slot++;
+                TravelerQuest stored = storedQuests.get(name);
+                if (stored != null) {
+                    itemType = stored.itemType();
+                    amount = stored.requiredAmount();
+                    rewardType = stored.rewardItem();
+                    rewardAmount = stored.rewardAmount();
+                    rewardName = rewardType;
+                }
+                gui.setItem(CONTENT_SLOTS[slotIndex], createTravelerQuestItem(player, visitor.getId(), name,
+                        description, itemType, amount, rewardType, rewardAmount, rewardName,
+                        stored == null ? null : stored.status()));
+                renderedNames.add(name);
+                slotIndex++;
                 
             } catch (Exception e) {
                 VillagerPro.getInstance().getLogger().warning("处理旅行者委托时出错: " + e.getMessage());
             }
         }
+
+        for (TravelerQuest stored : storedQuests.values()) {
+            if (slotIndex >= CONTENT_SLOTS.length) break;
+            if (renderedNames.contains(stored.questName()) || !"accepted".equals(stored.status())) continue;
+            gui.setItem(CONTENT_SLOTS[slotIndex], createTravelerQuestItem(player, visitor.getId(), stored.questName(),
+                    "该委托配置已变更，仍按接取时的合同交付", stored.itemType(),
+                    stored.requiredAmount(), stored.rewardItem(), stored.rewardAmount(),
+                    stored.rewardItem(), stored.status()));
+            slotIndex++;
+        }
+    }
+
+    private static ItemStack createTravelerQuestItem(Player player, int visitorId, String name,
+                                                      String description, String itemType, int amount,
+                                                      String rewardType, int rewardAmount,
+                                                      String rewardName, String status) {
+        Material material = Material.matchMaterial(itemType);
+        ItemStack item = new ItemStack(material == null ? Material.PAPER : material);
+        ItemMeta itemMeta = item.getItemMeta();
+        itemMeta.setDisplayName("§e" + name);
+        boolean accepted = "accepted".equals(status);
+        boolean finished = "completed".equals(status);
+        Village village = VillageManager.getVillage(player.getUniqueId());
+        boolean ready = accepted && village != null
+                && WarehouseManager.getExtractableAmount(village.getId(), itemType) >= amount;
+        String statusPrefix = finished ? "§a✅ " : (accepted ? "§e⏳ " : "§7");
+        itemMeta.setLore(java.util.Arrays.asList(
+                statusPrefix + "§7描述: " + description,
+                "§7需要: §f" + amount + " x " + itemType,
+                "§7奖励: §a" + rewardAmount + " x " + rewardName,
+                "",
+                finished ? "§7该委托已完成" : (ready ? "§a左键交付委托"
+                        : (accepted ? "§7仓库可用库存不足" : "§a左键接受委托"))
+        ));
+        item.setItemMeta(itemMeta);
+        setItemTag(item, "traveler:" + visitorId + ":" + name);
+        return item;
     }
     
     /**
@@ -281,15 +336,11 @@ public class VisitorGUIManager {
      */
     private static void addFestivalRewards(Inventory gui, VisitorData visitor, Player player) {
         VillagerPro plugin = VillagerPro.getInstance();
-        Object festivalsObj = plugin.getConfig().get("visitors.festival.festivals");
-        if (!(festivalsObj instanceof java.util.List)) return;
+        List<Map<String, Object>> festivalsList = loadFestivals();
         
-        @SuppressWarnings("unchecked")
-        java.util.List<Object> festivalsList = (java.util.List<Object>) festivalsObj;
-        
-        int slot = 10;
+        int slotIndex = 0;
         for (Object festivalObj : festivalsList) {
-            if (slot >= 17) break; // 最多显示7个节日奖励
+            if (slotIndex >= CONTENT_SLOTS.length) break;
             
             if (!(festivalObj instanceof Map)) continue;
             @SuppressWarnings("unchecked")
@@ -299,7 +350,7 @@ public class VisitorGUIManager {
                 String name = (String) festivalData.get("name");
                 String description = (String) festivalData.get("description");
                 Map<String, Object> effect = (Map<String, Object>) festivalData.get("effect");
-                String effectStr = String.valueOf(effect.getOrDefault("production_boost", "1.0"));
+                double productionBoost = readDouble(effect.get("production_boost"), 1.0);
                 
                 // 检查玩家是否已领取
                 boolean claimed = isFestivalClaimed(player, name);
@@ -310,19 +361,24 @@ public class VisitorGUIManager {
                 ItemMeta itemMeta = item.getItemMeta();
                 itemMeta.setDisplayName("§d" + name);
                 
-                itemMeta.setLore(java.util.Arrays.asList(
-                    statusPrefix + "§7" + description,
-                    "§7效果: §e" + effectStr + "x 产出",
-                    "",
-                    claimed ? "§a已领取！" : "§a左键领取"
-                ));
+                List<String> lore = new ArrayList<>();
+                lore.add(statusPrefix + "§7" + description);
+                if (productionBoost > 1.0) {
+                    lore.add("§7全服产出: §e" + String.format("%.2fx", productionBoost));
+                }
+                if (effect.containsKey("item")) {
+                    lore.add("§7个人奖励: §a" + readInt(effect.get("amount"), 1)
+                            + " x " + effect.get("item"));
+                }
+                lore.add("");
+                lore.add(claimed ? "§a已领取！" : "§a左键领取");
+                itemMeta.setLore(lore);
                 item.setItemMeta(itemMeta);
                 
                 // 设置额外数据用于奖励领取
                 setItemTag(item, "festival:" + name);
                 
-                gui.setItem(slot, item);
-                slot++;
+                gui.setItem(CONTENT_SLOTS[slotIndex++], item);
                 
             } catch (Exception e) {
                 VillagerPro.getInstance().getLogger().warning("处理节日奖励时出错: " + e.getMessage());
@@ -351,14 +407,30 @@ public class VisitorGUIManager {
         String title = player.getOpenInventory().getTitle();
         
         if (tag.startsWith("merchant:")) {
-            String name = tag.substring("merchant:".length());
-            handleMerchantPurchase(player, name);
+            String data = tag.substring("merchant:".length());
+            int separator = data.indexOf(':');
+            if (separator <= 0) return false;
+            int visitorId;
+            try {
+                visitorId = Integer.parseInt(data.substring(0, separator));
+            } catch (NumberFormatException e) {
+                return false;
+            }
+            handleMerchantPurchase(player, visitorId, data.substring(separator + 1));
             return true;
         }
         
         if (tag.startsWith("traveler:")) {
-            String name = tag.substring("traveler:".length());
-            handleTravelerDeal(player, name);
+            String data = tag.substring("traveler:".length());
+            int separator = data.indexOf(':');
+            if (separator <= 0) return false;
+            int visitorId;
+            try {
+                visitorId = Integer.parseInt(data.substring(0, separator));
+            } catch (NumberFormatException e) {
+                return false;
+            }
+            handleTravelerDeal(player, visitorId, data.substring(separator + 1));
             return true;
         }
         
@@ -374,78 +446,208 @@ public class VisitorGUIManager {
     /**
      * 处理商人购买
      */
-    private static void handleMerchantPurchase(Player player, String name) {
-        Map<String, Object> itemData = findMerchantItemByName(name);
+    private static void handleMerchantPurchase(Player player, int visitorId, String productId) {
+        VisitorData visitor = VisitorManager.getInstance().getVisitor(visitorId);
+        Village village = VillageManager.getVillage(player.getUniqueId());
+        if (visitor == null || village == null || visitor.getVillageId() != village.getId()) {
+            player.sendMessage("§c这位商人已经离开，或并不属于你的村庄");
+            return;
+        }
+        Map<String, Object> itemData = findMerchantItemById(productId);
         if (itemData == null) {
             player.sendMessage("§c找不到该商品");
             return;
         }
-        
+        boolean releaseReservation = false;
+        boolean refundCosts = false;
+        List<CostEntry> chargedCosts = List.of();
         try {
             List<Map<String, Object>> prices = (List<Map<String, Object>>) itemData.get("price");
             String itemType = (String) itemData.get("item");
+            String name = String.valueOf(itemData.getOrDefault("name", itemType));
+            int productAmount = Math.max(1, readInt(itemData.get("amount"), 1));
+            int stockLimit = Math.max(1, readInt(itemData.get("stock"), 1));
+            int perPlayerLimit = Math.max(1, readInt(itemData.get("per_player_limit"), 1));
             
             List<CostEntry> costs = parsePrices(prices);
+            if (costs.isEmpty()) {
+                player.sendMessage("§c该商品没有有效价格，已阻止免费购买");
+                return;
+            }
             if (!CostHandler.canAfford(player, costs)) {
                 player.sendMessage("§c资源不足，无法购买 " + name);
                 return;
             }
+            if (!reserveMerchantProduct(visitorId, productId, player.getUniqueId().toString(),
+                    stockLimit, perPlayerLimit)) {
+                player.sendMessage("§c商品已经售罄，或你已达到本批限购数量");
+                showMerchantGUI(player, visitor);
+                return;
+            }
+            releaseReservation = true;
             
             if (!CostHandler.deduct(player, costs)) {
+                releaseMerchantProduct(visitorId, productId, player.getUniqueId().toString());
+                releaseReservation = false;
                 player.sendMessage("§c扣除资源失败");
                 return;
             }
+            chargedCosts = costs;
+            refundCosts = true;
             
-            giveItemToPlayer(player, itemType, 1);
-            player.sendMessage("§a成功购买 " + name + "！");
+            if (!giveItemToPlayer(player, itemType, productAmount)) {
+                boolean refunded = CostHandler.refund(player, costs);
+                refundCosts = false;
+                releaseMerchantProduct(visitorId, productId, player.getUniqueId().toString());
+                releaseReservation = false;
+                player.sendMessage(refunded ? "§c商品发放失败，费用已退还"
+                        : "§c商品发放失败且费用未完整退还，请联系管理员");
+                return;
+            }
+            refundCosts = false;
+            releaseReservation = false;
+            player.sendMessage("§a成功购买 " + productAmount + " x " + name + "！");
             
             // 记录交易
-            VisitorManager.getInstance().createDeal(
-                null, "purchase", itemType, 1, 0, player.getName()
-            );
+            double vaultPrice = costs.stream()
+                    .filter(cost -> "vault".equalsIgnoreCase(cost.getType()))
+                    .mapToDouble(CostEntry::getAmount).sum();
+            if (VisitorManager.getInstance().createDeal(visitor, "purchase", itemType,
+                    productAmount, vaultPrice, player.getName()) == null) {
+                VillagerPro.getInstance().getLogger().warning(
+                        "商人购买已完成但成交日志写入失败: visitor=" + visitorId
+                                + ", player=" + player.getName() + ", item=" + itemType);
+            }
+            showMerchantGUI(player, visitor);
             
         } catch (Exception e) {
+            if (refundCosts) {
+                CostHandler.refund(player, chargedCosts);
+            }
+            if (releaseReservation) {
+                releaseMerchantProduct(visitorId, productId, player.getUniqueId().toString());
+            }
             player.sendMessage("§c购买失败，请重试");
             VillagerPro.getInstance().getLogger().warning("购买处理失败: " + e.getMessage());
+        }
+    }
+
+    private static MerchantStock loadMerchantStock(int visitorId, String productId,
+                                                   String playerUuid, int stockLimit) {
+        try (Connection connection = DatabaseManager.getConnection();
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT COALESCE(SUM(purchase_count), 0), "
+                             + "COALESCE(MAX(CASE WHEN player_uuid = ? THEN purchase_count ELSE 0 END), 0) "
+                             + "FROM visitor_shop_sales WHERE visitor_id = ? AND product_id = ?")) {
+            statement.setString(1, playerUuid);
+            statement.setInt(2, visitorId);
+            statement.setString(3, productId);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                if (resultSet.next()) {
+                    return new MerchantStock(resultSet.getInt(1), resultSet.getInt(2));
+                }
+            }
+        } catch (SQLException e) {
+            VillagerPro.getInstance().getLogger().warning("读取访客商品库存失败: " + e.getMessage());
+        }
+        return new MerchantStock(stockLimit, stockLimit);
+    }
+
+    private static boolean reserveMerchantProduct(int visitorId, String productId,
+                                                  String playerUuid, int stockLimit,
+                                                  int perPlayerLimit) {
+        try (Connection connection = DatabaseManager.getConnection()) {
+            return OperationTransactions.reserveVisitorProduct(connection,
+                    DatabaseManager.getDialect(), visitorId, productId, playerUuid,
+                    stockLimit, perPlayerLimit);
+        } catch (SQLException e) {
+            VillagerPro.getInstance().getLogger().warning("占用访客商品库存失败: " + e.getMessage());
+            return false;
+        }
+    }
+
+    private static void releaseMerchantProduct(int visitorId, String productId, String playerUuid) {
+        try (Connection connection = DatabaseManager.getConnection()) {
+            if (!OperationTransactions.releaseVisitorProduct(
+                    connection, visitorId, productId, playerUuid)) {
+                VillagerPro.getInstance().getLogger().severe(
+                        "无法释放失败购买占用的访客商品库存: visitor=" + visitorId
+                                + ", product=" + productId + ", player=" + playerUuid);
+            }
+        } catch (SQLException e) {
+            VillagerPro.getInstance().getLogger().severe(
+                    "释放访客商品库存失败: " + e.getMessage());
         }
     }
     
     /**
      * 处理旅行者委托
      */
-    private static void handleTravelerDeal(Player player, String name) {
+    private static void handleTravelerDeal(Player player, int visitorId, String name) {
+        TravelerQuest storedQuest = loadTravelerQuest(player, visitorId, name);
         Map<String, Object> dealData = findTravelerDealByName(name);
-        if (dealData == null) {
+        if (storedQuest == null && dealData == null) {
             player.sendMessage("§c找不到该委托");
             return;
         }
         
         try {
-            String itemType = (String) dealData.get("item");
-            int amount = (Integer) dealData.get("amount");
-            String displayName = (String) dealData.get("name");
+            Village village = VillageManager.getVillage(player.getUniqueId());
+            if (village == null) {
+                player.sendMessage("§c请先创建村庄");
+                return;
+            }
+            String itemType = storedQuest == null
+                    ? (String) dealData.get("item") : storedQuest.itemType();
+            int amount = storedQuest == null
+                    ? (Integer) dealData.get("amount") : storedQuest.requiredAmount();
+            String displayName = dealData == null ? name : (String) dealData.get("name");
             
-            if (isDealAccepted(player, name)) {
-                // 已接受，尝试交付
-                if (hasItemInInventory(player, itemType, amount)) {
-                    removeItemFromInventory(player, itemType, amount);
-                    
-                    Map<String, Object> rewardData = (Map<String, Object>) dealData.get("reward");
-                    String rewardType = (String) rewardData.get("item");
-                    int rewardAmount = (Integer) rewardData.get("amount");
-                    giveItemToPlayer(player, rewardType, rewardAmount);
-                    
-                    clearDealAccepted(player, name);
-                    player.sendMessage("§a完成委托: " + displayName + "！");
-                    player.sendMessage("§a获得奖励: " + rewardAmount + " x " + rewardType);
-                } else {
-                    player.sendMessage("§c背包中没有足够的 " + itemType + " (需要 " + amount + " 个)");
+            if (storedQuest != null && "completed".equals(storedQuest.status())) {
+                player.sendMessage("§c这个委托已经完成过了！");
+            } else if (storedQuest != null && "accepted".equals(storedQuest.status())) {
+                int available = WarehouseManager.getExtractableAmount(village.getId(), itemType);
+                if (available < amount) {
+                    player.sendMessage("§c仓库可用 " + itemType + " 不足，需要 " + amount
+                            + "，当前 " + available + "；保留量不会被交付");
+                    return;
                 }
+                String rewardType = storedQuest.rewardItem();
+                int rewardAmount = storedQuest.rewardAmount();
+                if (Material.getMaterial(rewardType) == null) {
+                    player.sendMessage("§c委托奖励不是有效的原版物品，无法安全入库");
+                    return;
+                }
+                int reserve = WarehouseRuleManager.getItemRule(
+                        village.getId(), itemType).getReserveAmount();
+                boolean completed;
+                try (Connection connection = DatabaseManager.getConnection()) {
+                    completed = OperationTransactions.completeVisitorQuest(connection,
+                            DatabaseManager.getDialect(), player.getUniqueId().toString(),
+                            visitorId, name, village.getId(), itemType, amount,
+                            rewardType, rewardAmount, reserve,
+                            PolicyManager.getFrozenStockFraction(village.getId()),
+                            village.getWarehouseCapacity());
+                }
+                if (!completed) {
+                    player.sendMessage("§c委托状态、可用库存或仓库空间已经变化，本次没有扣料");
+                    return;
+                }
+                player.sendMessage("§a完成委托: " + displayName + "！");
+                player.sendMessage("§a奖励已入库: " + rewardAmount + " x " + rewardType);
             } else {
                 // 接受委托
-                acceptDeal(player, name);
-                player.sendMessage("§a成功接受委托: " + displayName);
-                player.sendMessage("§7收集 " + amount + " 个 " + itemType + " 后再次点击交付");
+                if (dealData == null) {
+                    player.sendMessage("§c该委托已从配置移除，无法重新接受");
+                    return;
+                }
+                if (acceptDeal(player, visitorId, name, itemType, amount, dealData)) {
+                    player.sendMessage("§a成功接受委托: " + displayName);
+                    player.sendMessage("§7将 " + amount + " 个 " + itemType
+                            + " 存入村庄仓库后再次点击交付");
+                } else {
+                    player.sendMessage("§c接受委托失败，请稍后重试");
+                }
             }
             
         } catch (Exception e) {
@@ -465,37 +667,62 @@ public class VisitorGUIManager {
         }
         
         try {
+            Village village = VillageManager.getVillage(player.getUniqueId());
+            if (village == null) {
+                player.sendMessage("§c请先创建村庄");
+                return;
+            }
+            Object effectObject = festivalData.get("effect");
+            if (!(effectObject instanceof Map<?, ?>)) {
+                player.sendMessage("§c该节日没有有效的奖励配置");
+                return;
+            }
+            @SuppressWarnings("unchecked")
+            Map<String, Object> effect = (Map<String, Object>) effectObject;
             if (isFestivalClaimed(player, name)) {
                 player.sendMessage("§c这个奖励已经领取过了！");
                 return;
             }
             
-            Map<String, Object> effect = (Map<String, Object>) festivalData.get("effect");
+            String rewardItem = null;
+            int rewardAmount = 0;
             if (effect.containsKey("item")) {
-                String rewardItem = (String) effect.get("item");
-                int amount = (Integer) effect.getOrDefault("amount", 1);
-                giveItemToPlayer(player, rewardItem, amount);
-            }
-            
-            // 激活产出加成
-            double boost = 1.0;
-            if (effect.containsKey("production_boost")) {
-                Object boostObj = effect.get("production_boost");
-                if (boostObj instanceof Number) {
-                    boost = ((Number) boostObj).doubleValue();
-                } else {
-                    try {
-                        boost = Double.parseDouble(String.valueOf(boostObj));
-                    } catch (NumberFormatException ignored) {
-                    }
+                rewardItem = String.valueOf(effect.get("item"));
+                rewardAmount = Math.max(1, readInt(effect.get("amount"), 1));
+                if (Material.getMaterial(rewardItem) == null) {
+                    player.sendMessage("§c节日奖励不是有效的原版物品，无法安全入库");
+                    return;
                 }
             }
-            long durationHours = ((Number) festivalData.getOrDefault("duration_hours", 48)).longValue();
-            activateFestivalBoost(name, boost, durationHours);
+            double boost = readDouble(effect.get("production_boost"), 1.0);
+            long durationHours = Math.max(1,
+                    readInt(festivalData.get("duration_hours"), 48));
+            String claimKey = festivalClaimKey(name);
+            OperationTransactions.FestivalClaimResult claim = claimFestivalReward(
+                    player, claimKey, village, rewardItem, rewardAmount,
+                    boost > 1.0 ? durationHours : 0);
+            if (!claim.claimed()) {
+                player.sendMessage("§c奖励已领取、仓库空间不足或领取状态已经变化");
+                return;
+            }
+            if (claim.boostExpiry() > 0) {
+                activeFestivalBoosts.put(claimKey, claim.boostExpiry());
+            }
             
-            claimFestivalReward(player, name);
             player.sendMessage("§a成功领取节日奖励: " + name + "！");
-            player.sendMessage("§7节日产出加成 " + boost + "x 将持续 " + durationHours + " 小时");
+            if (rewardItem != null) {
+                player.sendMessage("§a个人奖励已入库: " + rewardAmount + " x " + rewardItem);
+            }
+            if (boost > 1.0) {
+                long remainingMs = claim.boostExpiry() - System.currentTimeMillis();
+                if (remainingMs > 0) {
+                    long remainingMinutes = Math.max(1, (remainingMs + 59_999) / 60_000);
+                    player.sendMessage("§7节日产出加成 " + boost + "x，全服剩余 "
+                            + remainingMinutes + " 分钟；重复领取不会延长时间");
+                } else {
+                    player.sendMessage("§7本周期的全服产出加成已经结束，不会因后续领取重新启动");
+                }
+            }
             
         } catch (Exception e) {
             player.sendMessage("§c领取失败，请重试");
@@ -505,7 +732,7 @@ public class VisitorGUIManager {
     
     // ============== 配置查找 ==============
     
-    private static Map<String, Object> findMerchantItemByName(String name) {
+    private static Map<String, Object> findMerchantItemById(String productId) {
         VillagerPro plugin = VillagerPro.getInstance();
         Object itemsObj = plugin.getConfig().get("visitors.merchant.items");
         if (!(itemsObj instanceof List)) return null;
@@ -514,13 +741,21 @@ public class VisitorGUIManager {
             if (itemObj instanceof Map) {
                 @SuppressWarnings("unchecked")
                 Map<String, Object> itemData = (Map<String, Object>) itemObj;
-                String itemName = (String) itemData.getOrDefault("name", "");
-                if (itemName.equals(name)) {
+                if (merchantProductId(itemData).equals(productId)) {
                     return itemData;
                 }
             }
         }
         return null;
+    }
+
+    private static String merchantProductId(Map<String, Object> itemData) {
+        Object configured = itemData.get("id");
+        if (configured != null && !String.valueOf(configured).isBlank()) {
+            return String.valueOf(configured);
+        }
+        return String.valueOf(itemData.getOrDefault("item", "unknown"))
+                .toLowerCase(java.util.Locale.ROOT);
     }
     
     private static Map<String, Object> findTravelerDealByName(String name) {
@@ -542,29 +777,35 @@ public class VisitorGUIManager {
     }
     
     private static Map<String, Object> findFestivalByName(String name) {
-        VillagerPro plugin = VillagerPro.getInstance();
-        Object festivalsObj = plugin.getConfig().get("visitors.festival.festivals");
-        if (!(festivalsObj instanceof List)) return null;
-        
-        for (Object festivalObj : (List<?>) festivalsObj) {
-            if (festivalObj instanceof Map) {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> festivalData = (Map<String, Object>) festivalObj;
-                String festivalName = (String) festivalData.get("name");
-                if (festivalName != null && festivalName.equals(name)) {
-                    return festivalData;
-                }
+        for (Map<String, Object> festivalData : loadFestivals()) {
+            String festivalName = (String) festivalData.get("name");
+            if (festivalName != null && festivalName.equals(name)) {
+                return festivalData;
             }
         }
         return null;
     }
+
+    private static List<Map<String, Object>> loadFestivals() {
+        List<Map<String, Object>> festivals = new ArrayList<>();
+        ConfigurationSection root = VillagerPro.getInstance().getConfig()
+                .getConfigurationSection("visitors.festival.festivals");
+        if (root == null) return festivals;
+
+        for (String key : root.getKeys(false)) {
+            ConfigurationSection section = root.getConfigurationSection(key);
+            if (section == null) continue;
+            Map<String, Object> data = new LinkedHashMap<>(section.getValues(false));
+            ConfigurationSection effect = section.getConfigurationSection("effect");
+            if (effect != null) {
+                data.put("effect", new LinkedHashMap<>(effect.getValues(false)));
+            }
+            festivals.add(data);
+        }
+        return festivals;
+    }
     
     // ============== 节日增益 ==============
-    
-    private static void activateFestivalBoost(String festivalName, double boost, long durationHours) {
-        long expiresAt = System.currentTimeMillis() + durationHours * 60 * 60 * 1000;
-        activeFestivalBoosts.put(festivalName, expiresAt);
-    }
     
     /**
      * 获取当前生效的节日产出倍率
@@ -574,9 +815,27 @@ public class VisitorGUIManager {
         double totalBoost = 1.0;
         long now = System.currentTimeMillis();
         activeFestivalBoosts.entrySet().removeIf(entry -> entry.getValue() < now);
+
+        try (Connection connection = DatabaseManager.getConnection()) {
+            cleanupExpiredFestivalBoosts(connection, now);
+            try (PreparedStatement query = connection.prepareStatement(
+                    "SELECT festival_name, expires_at FROM festival_boosts WHERE expires_at >= ?")) {
+                query.setLong(1, now);
+                ResultSet resultSet = query.executeQuery();
+                while (resultSet.next()) {
+                    activeFestivalBoosts.put(resultSet.getString("festival_name"),
+                            resultSet.getLong("expires_at"));
+                }
+            }
+        } catch (SQLException e) {
+            VillagerPro.getInstance().getLogger().warning("加载节日增益失败: " + e.getMessage());
+        }
         
+        Set<String> appliedFestivals = new HashSet<>();
         for (Map.Entry<String, Long> entry : activeFestivalBoosts.entrySet()) {
-            Map<String, Object> festivalData = findFestivalByName(entry.getKey());
+            String festivalName = festivalNameFromActivationKey(entry.getKey());
+            if (!appliedFestivals.add(festivalName)) continue;
+            Map<String, Object> festivalData = findFestivalByName(festivalName);
             if (festivalData == null) continue;
             
             Map<String, Object> effect = (Map<String, Object>) festivalData.get("effect");
@@ -596,6 +855,34 @@ public class VisitorGUIManager {
         }
         
         return totalBoost;
+    }
+
+    private static void cleanupExpiredFestivalBoosts(Connection connection, long now)
+            throws SQLException {
+        List<String> obsoleteKeys = new ArrayList<>();
+        try (PreparedStatement query = connection.prepareStatement(
+                "SELECT festival_name FROM festival_boosts WHERE expires_at < ?")) {
+            query.setLong(1, now);
+            try (ResultSet resultSet = query.executeQuery()) {
+                while (resultSet.next()) {
+                    String activationKey = resultSet.getString(1);
+                    String festivalName = festivalNameFromActivationKey(activationKey);
+                    if (!activationKey.equals(festivalClaimKey(festivalName))) {
+                        obsoleteKeys.add(activationKey);
+                    }
+                }
+            }
+        }
+        if (obsoleteKeys.isEmpty()) return;
+        try (PreparedStatement delete = connection.prepareStatement(
+                "DELETE FROM festival_boosts WHERE festival_name = ? AND expires_at < ?")) {
+            for (String activationKey : obsoleteKeys) {
+                delete.setString(1, activationKey);
+                delete.setLong(2, now);
+                delete.addBatch();
+            }
+            delete.executeBatch();
+        }
     }
     
     // ============== 工具方法 ==============
@@ -669,7 +956,7 @@ public class VisitorGUIManager {
                 }
             }
             
-            if ("itemsadder".equalsIgnoreCase(type)) {
+            if ("itemsadder".equalsIgnoreCase(type) || "item".equalsIgnoreCase(type)) {
                 String item = priceData.get("item") != null ? String.valueOf(priceData.get("item")) : "";
                 costs.add(new CostEntry(type, amount, item));
             } else {
@@ -679,103 +966,196 @@ public class VisitorGUIManager {
         
         return costs;
     }
+
+    private static double readDouble(Object value, double fallback) {
+        if (value instanceof Number) return ((Number) value).doubleValue();
+        if (value == null) return fallback;
+        try {
+            return Double.parseDouble(String.valueOf(value));
+        } catch (NumberFormatException ignored) {
+            return fallback;
+        }
+    }
+
+    private static int readInt(Object value, int fallback) {
+        if (value instanceof Number) return ((Number) value).intValue();
+        if (value == null) return fallback;
+        try {
+            return Integer.parseInt(String.valueOf(value));
+        } catch (NumberFormatException ignored) {
+            return fallback;
+        }
+    }
     
-    private static void giveItemToPlayer(Player player, String itemType, int amount) {
+    private static boolean giveItemToPlayer(Player player, String itemType, int amount) {
         if (itemType.startsWith("villagerpro:")) {
             // 自定义物品，通过 ItemsAdder 发放（如果可用）
-            giveCustomItem(player, itemType, amount);
-            return;
+            return giveCustomItem(player, itemType, amount);
         }
         
         Material material = Material.getMaterial(itemType);
         if (material == null) {
             player.sendMessage("§c无法给予未知物品: " + itemType);
-            return;
+            return false;
         }
         
         ItemStack itemStack = new ItemStack(material, amount);
-        player.getInventory().addItem(itemStack);
+        Map<Integer, ItemStack> leftovers = player.getInventory().addItem(itemStack);
+        for (ItemStack leftover : leftovers.values()) {
+            player.getWorld().dropItemNaturally(player.getLocation(), leftover);
+        }
+        return true;
     }
     
-    private static void giveCustomItem(Player player, String itemNamespace, int amount) {
+    private static boolean giveCustomItem(Player player, String itemNamespace, int amount) {
         if (Bukkit.getPluginManager().getPlugin("ItemsAdder") == null) {
             player.sendMessage("§c自定义物品插件未加载，无法获得 " + itemNamespace);
-            return;
+            return false;
         }
         try {
             Class<?> itemsAdderAPI = Class.forName("dev.lone.itemsadder.api.ItemsAdder");
             Object customItem = itemsAdderAPI.getMethod("getCustomItem", String.class).invoke(null, itemNamespace);
             if (customItem == null) {
                 player.sendMessage("§c找不到自定义物品: " + itemNamespace);
-                return;
+                return false;
             }
             ItemStack itemStack = (ItemStack) customItem.getClass().getMethod("getItemStack").invoke(customItem);
             itemStack.setAmount(amount);
-            player.getInventory().addItem(itemStack);
+            Map<Integer, ItemStack> leftovers = player.getInventory().addItem(itemStack);
+            for (ItemStack leftover : leftovers.values()) {
+                player.getWorld().dropItemNaturally(player.getLocation(), leftover);
+            }
+            return true;
         } catch (Exception e) {
             player.sendMessage("§c发放自定义物品失败: " + itemNamespace);
             VillagerPro.getInstance().getLogger().warning("发放自定义物品失败: " + e.getMessage());
+            return false;
         }
     }
     
-    private static boolean hasItemInInventory(Player player, String itemType, int amount) {
-        Material material = Material.getMaterial(itemType);
-        if (material == null) return false;
-        
-        int found = 0;
-        for (ItemStack item : player.getInventory().getContents()) {
-            if (item != null && item.getType() == material) {
-                found += item.getAmount();
-                if (found >= amount) return true;
-            }
-        }
-        return false;
+    private static boolean isDealAccepted(Player player, int visitorId, String dealName) {
+        return hasDealStatus(player, visitorId, dealName, "accepted");
     }
-    
-    private static void removeItemFromInventory(Player player, String itemType, int amount) {
-        Material material = Material.getMaterial(itemType);
-        if (material == null) return;
-        
-        int toRemove = amount;
-        for (ItemStack item : player.getInventory().getContents()) {
-            if (item != null && item.getType() == material) {
-                int itemAmount = item.getAmount();
-                if (itemAmount <= toRemove) {
-                    player.getInventory().remove(item);
-                    toRemove -= itemAmount;
-                } else {
-                    item.setAmount(itemAmount - toRemove);
-                    toRemove = 0;
+
+    private static boolean isDealCompleted(Player player, int visitorId, String dealName) {
+        return hasDealStatus(player, visitorId, dealName, "completed");
+    }
+
+    private static TravelerQuest loadTravelerQuest(Player player, int visitorId, String dealName) {
+        return loadTravelerQuests(player, visitorId).get(dealName);
+    }
+
+    private static Map<String, TravelerQuest> loadTravelerQuests(Player player, int visitorId) {
+        Map<String, TravelerQuest> quests = new LinkedHashMap<>();
+        try (Connection connection = DatabaseManager.getConnection();
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT quest_name, item_type, required_amount, reward_item, reward_amount, status "
+                             + "FROM visitor_quests WHERE player_uuid = ? AND visitor_id = ? "
+                             + "ORDER BY accepted_at")) {
+            statement.setString(1, player.getUniqueId().toString());
+            statement.setInt(2, visitorId);
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    TravelerQuest quest = new TravelerQuest(resultSet.getString("quest_name"),
+                            resultSet.getString("item_type"), resultSet.getInt("required_amount"),
+                            resultSet.getString("reward_item"), resultSet.getInt("reward_amount"),
+                            resultSet.getString("status"));
+                    quests.put(quest.questName(), quest);
                 }
-                if (toRemove == 0) break;
             }
+        } catch (SQLException e) {
+            VillagerPro.getInstance().getLogger().warning("读取访客委托合同失败: " + e.getMessage());
+        }
+        return quests;
+    }
+
+    private static boolean hasDealStatus(Player player, int visitorId, String dealName, String status) {
+        try (Connection connection = DatabaseManager.getConnection();
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT 1 FROM visitor_quests WHERE player_uuid = ? AND visitor_id = ? " +
+                             "AND quest_name = ? AND status = ? LIMIT 1")) {
+            statement.setString(1, player.getUniqueId().toString());
+            statement.setInt(2, visitorId);
+            statement.setString(3, dealName);
+            statement.setString(4, status);
+            return statement.executeQuery().next();
+        } catch (SQLException e) {
+            VillagerPro.getInstance().getLogger().warning("读取访客委托状态失败: " + e.getMessage());
+            return false;
         }
     }
-    
-    // 旅行者委托状态：playerUUID -> dealName -> 是否已接受
-    private static final Map<String, Map<String, Boolean>> acceptedDeals = new HashMap<>();
-    
-    private static boolean isDealAccepted(Player player, String dealName) {
-        return acceptedDeals.getOrDefault(player.getUniqueId().toString(), new HashMap<>()).getOrDefault(dealName, false);
+
+    @SuppressWarnings("unchecked")
+    private static boolean acceptDeal(Player player, int visitorId, String dealName, String itemType,
+                                      int amount, Map<String, Object> dealData) {
+        Map<String, Object> reward = (Map<String, Object>) dealData.get("reward");
+        try (Connection connection = DatabaseManager.getConnection();
+             PreparedStatement statement = connection.prepareStatement(DatabaseManager.insertIgnore(
+                     "INSERT INTO visitor_quests " +
+                             "(player_uuid, visitor_id, quest_name, item_type, required_amount, " +
+                             "reward_type, reward_item, reward_amount, status) " +
+                             "VALUES (?, ?, ?, ?, ?, 'item', ?, ?, 'accepted')"))) {
+            statement.setString(1, player.getUniqueId().toString());
+            statement.setInt(2, visitorId);
+            statement.setString(3, dealName);
+            statement.setString(4, itemType);
+            statement.setInt(5, amount);
+            statement.setString(6, String.valueOf(reward.get("item")));
+            statement.setInt(7, ((Number) reward.get("amount")).intValue());
+            return statement.executeUpdate() == 1;
+        } catch (SQLException e) {
+            VillagerPro.getInstance().getLogger().warning("接受访客委托失败: " + e.getMessage());
+            return false;
+        }
     }
-    
-    private static void acceptDeal(Player player, String dealName) {
-        acceptedDeals.computeIfAbsent(player.getUniqueId().toString(), k -> new HashMap<>()).put(dealName, true);
-    }
-    
-    private static void clearDealAccepted(Player player, String dealName) {
-        acceptedDeals.computeIfAbsent(player.getUniqueId().toString(), k -> new HashMap<>()).put(dealName, false);
-    }
-    
-    // 节日奖励领取：playerUUID -> festivalName -> 是否已领取
-    private static final Map<String, Map<String, Boolean>> claimedFestivals = new HashMap<>();
-    
+
     private static boolean isFestivalClaimed(Player player, String festivalName) {
-        return claimedFestivals.getOrDefault(player.getUniqueId().toString(), new HashMap<>()).getOrDefault(festivalName, false);
+        try (Connection connection = DatabaseManager.getConnection();
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT 1 FROM festival_claims WHERE player_uuid = ? AND festival_name = ?")) {
+            statement.setString(1, player.getUniqueId().toString());
+            statement.setString(2, festivalClaimKey(festivalName));
+            return statement.executeQuery().next();
+        } catch (SQLException e) {
+            VillagerPro.getInstance().getLogger().warning("读取节日领取状态失败: " + e.getMessage());
+            return true;
+        }
     }
-    
-    private static void claimFestivalReward(Player player, String festivalName) {
-        claimedFestivals.computeIfAbsent(player.getUniqueId().toString(), k -> new HashMap<>()).put(festivalName, true);
+
+    private static OperationTransactions.FestivalClaimResult claimFestivalReward(
+            Player player, String claimKey, Village village, String rewardItem,
+            int rewardAmount, long boostDurationHours) {
+        try (Connection connection = DatabaseManager.getConnection()) {
+            return OperationTransactions.claimFestivalReward(connection,
+                    DatabaseManager.getDialect(), player.getUniqueId().toString(),
+                    claimKey, village.getId(), rewardItem, rewardAmount,
+                    village.getWarehouseCapacity(),
+                    boostDurationHours > 0 ? claimKey : null,
+                    boostDurationHours > 0 ? System.currentTimeMillis()
+                            + boostDurationHours * 60L * 60L * 1000L : 0);
+        } catch (SQLException e) {
+            VillagerPro.getInstance().getLogger().warning("保存节日领取状态失败: " + e.getMessage());
+            return new OperationTransactions.FestivalClaimResult(false, 0);
+        }
+    }
+
+    private static String festivalClaimKey(String festivalName) {
+        long cycle = Bukkit.getWorlds().isEmpty()
+                ? System.currentTimeMillis() / (7L * 24 * 60 * 60 * 1000)
+                : Bukkit.getWorlds().get(0).getFullTime() / 168000L;
+        return festivalName + "#" + cycle;
+    }
+
+    private static String festivalNameFromActivationKey(String activationKey) {
+        int separator = activationKey.lastIndexOf('#');
+        return separator > 0 ? activationKey.substring(0, separator) : activationKey;
+    }
+
+    private record TravelerQuest(String questName, String itemType, int requiredAmount,
+                                 String rewardItem, int rewardAmount, String status) {
+    }
+
+    private record MerchantStock(int totalPurchased, int playerPurchased) {
     }
     
     /**

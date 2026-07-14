@@ -150,7 +150,7 @@ public class VisitorScheduler {
     private boolean isFestivalDay() {
         // 这里可以实现节日逻辑，比如根据Minecraft世界时间或现实日期
         // 目前简单实现：每7天有一个节日
-        long worldTime = Bukkit.getWorlds().get(0).getTime();
+        long worldTime = Bukkit.getWorlds().get(0).getFullTime();
         return (worldTime % 168000) < 24000; // 168000 ticks = 7天，24000 ticks = 1天
     }
     

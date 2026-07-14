@@ -2,6 +2,7 @@ package cn.popcraft.villagerpro.managers;
 
 import cn.popcraft.villagerpro.VillagerPro;
 import cn.popcraft.villagerpro.database.DatabaseManager;
+import cn.popcraft.villagerpro.database.OperationTransactions;
 import cn.popcraft.villagerpro.models.Village;
 import cn.popcraft.villagerpro.models.VillagerData;
 import org.bukkit.Material;
@@ -227,6 +228,7 @@ public class LegacyManager {
         // 增加村庄声望
         int fameBoost = plugin.getConfig().getInt("legacy.effects.village_fame_boost", 25);
         village.addProsperity(fameBoost);
+        VillageManager.updateVillage(village);
         
         // 解锁特殊村民（如果配置了）
         if (plugin.getConfig().getBoolean("legacy.effects.unlock_special_villagers", true)) {
@@ -351,8 +353,7 @@ public class LegacyManager {
         
         try (Connection conn = DatabaseManager.getConnection();
              PreparedStatement stmt = conn.prepareStatement(
-                 "SELECT * FROM legacy_records WHERE original_villager_id = ? OR village_id = (SELECT village_id FROM villagers WHERE id = ?)",
-                 java.sql.Statement.RETURN_GENERATED_KEYS)) {
+                 "SELECT * FROM legacy_records WHERE original_villager_id = ? OR village_id = (SELECT village_id FROM villagers WHERE id = ?)")) {
             
             stmt.setInt(1, villagerId);
             stmt.setInt(2, villagerId);
@@ -365,8 +366,8 @@ public class LegacyManager {
                     rs.getInt("village_id"),
                     rs.getString("profession"),
                     rs.getInt("original_level"),
+                    new java.util.HashMap<>(),
                     deserializeSkillMap(rs.getString("inherited_skills")),
-                    deserializeSkillMap(rs.getString("inherited_skills")), // 简化处理
                     rs.getInt("skill_inheritance_percentage"),
                     rs.getString("player_name"),
                     rs.getTimestamp("created_at")
@@ -466,25 +467,13 @@ public class LegacyManager {
      * 保存村民数据到数据库
      */
     private int saveVillagerToDatabase(VillagerData villager) {
-        try (Connection conn = DatabaseManager.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                 "INSERT INTO villagers (village_id, entity_uuid, profession, level, experience, follow_mode) VALUES (?, ?, ?, ?, ?, ?)",
-                 PreparedStatement.RETURN_GENERATED_KEYS)) {
-            
-            stmt.setInt(1, villager.getVillageId());
-            stmt.setString(2, villager.getEntityUUID().toString());
-            stmt.setString(3, villager.getProfession());
-            stmt.setInt(4, villager.getLevel());
-            stmt.setInt(5, villager.getExperience());
-            stmt.setString(6, villager.getFollowMode());
-            
-            int affectedRows = stmt.executeUpdate();
-            if (affectedRows > 0) {
-                ResultSet generatedKeys = stmt.getGeneratedKeys();
-                if (generatedKeys.next()) {
-                    return generatedKeys.getInt(1);
-                }
-            }
+        Village village = VillageManager.getVillageById(villager.getVillageId());
+        if (village == null) return -1;
+        try (Connection conn = DatabaseManager.getConnection()) {
+            // The original still occupies one slot until the successor is fully spawned.
+            return OperationTransactions.recruitVillager(conn, DatabaseManager.getDialect(),
+                    villager.getVillageId(), villager.getEntityUUID().toString(),
+                    villager.getProfession(), village.getVillagerLimit() + 1, "");
         } catch (SQLException e) {
             plugin.getLogger().severe("保存继承村民到数据库失败: " + e.getMessage());
         }
@@ -495,13 +484,11 @@ public class LegacyManager {
      * 从数据库删除村民
      */
     private void deleteVillagerFromDatabase(int villagerId) {
-        try {
-            String sql = "DELETE FROM villagers WHERE id = ?";
-            
-            try (PreparedStatement stmt = DatabaseManager.getConnection().prepareStatement(sql)) {
-                stmt.setInt(1, villagerId);
-                stmt.executeUpdate();
-            }
+        String sql = "DELETE FROM villagers WHERE id = ?";
+        try (Connection connection = DatabaseManager.getConnection();
+             PreparedStatement stmt = connection.prepareStatement(sql)) {
+            stmt.setInt(1, villagerId);
+            stmt.executeUpdate();
         } catch (SQLException e) {
             plugin.getLogger().severe("删除村民数据失败: " + e.getMessage());
         }
@@ -521,7 +508,8 @@ public class LegacyManager {
             
             // 更新数据库中的实体UUID
             String sql = "UPDATE villagers SET entity_uuid = ? WHERE id = ?";
-            try (PreparedStatement stmt = DatabaseManager.getConnection().prepareStatement(sql)) {
+            try (Connection connection = DatabaseManager.getConnection();
+                 PreparedStatement stmt = connection.prepareStatement(sql)) {
                 stmt.setString(1, bukkitVillager.getUniqueId().toString());
                 stmt.setInt(2, villager.getId());
                 stmt.executeUpdate();
@@ -539,11 +527,22 @@ public class LegacyManager {
      */
     private org.bukkit.entity.Villager.Type getVillagerType(String profession) {
         try {
-            // 由于API版本问题，暂时返回null让Bukkit自动处理
-            return null;
+            switch (profession.toLowerCase()) {
+                case "farmer":
+                case "fisherman":
+                case "shepherd":
+                    return org.bukkit.entity.Villager.Type.PLAINS;
+                case "priest":
+                    return org.bukkit.entity.Villager.Type.SWAMP;
+                case "librarian":
+                case "cartographer":
+                    return org.bukkit.entity.Villager.Type.DESERT;
+                default:
+                    return org.bukkit.entity.Villager.Type.PLAINS;
+            }
         } catch (Exception e) {
             plugin.getLogger().warning("获取村民类型失败: " + e.getMessage());
-            return null;
+            return org.bukkit.entity.Villager.Type.PLAINS;
         }
     }
     

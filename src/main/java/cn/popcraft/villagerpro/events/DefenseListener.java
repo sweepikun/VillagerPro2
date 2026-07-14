@@ -6,6 +6,7 @@ import cn.popcraft.villagerpro.managers.VillageUpgradeManager;
 import cn.popcraft.villagerpro.managers.VillagerManager;
 import cn.popcraft.villagerpro.models.Village;
 import cn.popcraft.villagerpro.models.VillagerData;
+import cn.popcraft.villagerpro.util.GameplayMath;
 import org.bukkit.Location;
 import org.bukkit.entity.Monster;
 import org.bukkit.entity.Villager;
@@ -62,8 +63,12 @@ public class DefenseListener implements Listener {
             return;
         }
 
-        double reductionPerLevel = plugin.getConfig().getDouble("defense.protection.monster_reduction", 10);
-        double reductionChance = Math.min(100, reductionLevel * reductionPerLevel) / 100.0;
+        double legacyReduction = GameplayMath.configuredPercentage(
+                plugin.getConfig().getDouble("defense.protection.monster_reduction", 10));
+        double reductionPerLevel = VillageUpgradeManager.getDoubleEffect(
+                "mob_reduction", "spawn_reduction_per_level", legacyReduction);
+        double reductionChance = Math.min(1.0,
+                reductionLevel * Math.max(0.0, reductionPerLevel));
 
         if (ThreadLocalRandom.current().nextDouble() < reductionChance) {
             event.setCancelled(true);

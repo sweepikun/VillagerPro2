@@ -2,6 +2,7 @@ package cn.popcraft.villagerpro.managers;
 
 import cn.popcraft.villagerpro.VillagerPro;
 import cn.popcraft.villagerpro.database.DatabaseManager;
+import cn.popcraft.villagerpro.database.OperationTransactions;
 import cn.popcraft.villagerpro.economy.CostEntry;
 import cn.popcraft.villagerpro.economy.CostHandler;
 import cn.popcraft.villagerpro.models.Village;
@@ -151,6 +152,12 @@ public class VillagerManager {
      * @return 招募的村民数据，如果招募失败则返回null
      */
     public static VillagerData recruitVillager(Player player, Village village, UUID entityUUID, String profession) {
+        Village ownedVillage = VillageManager.getVillage(player.getUniqueId());
+        if (ownedVillage == null || ownedVillage.getId() != village.getId()
+                || getVillager(entityUUID) != null) {
+            return null;
+        }
+
         // 检查村庄是否已达村民上限
         List<VillagerData> villagers = getVillagers(village.getId());
         if (villagers.size() >= village.getVillagerLimit()) {
@@ -171,37 +178,26 @@ public class VillagerManager {
             return null;
         }
         
-        // 执行招募
-        try (Connection connection = DatabaseManager.getConnection();
-             PreparedStatement statement = connection.prepareStatement(
-                     "INSERT INTO villagers (village_id, entity_uuid, profession, level, experience, follow_mode) VALUES (?, ?, ?, ?, ?, ?)",
-                     PreparedStatement.RETURN_GENERATED_KEYS)) {
-            
-            statement.setInt(1, village.getId());
-            statement.setString(2, entityUUID.toString());
-            statement.setString(3, profession);
-            statement.setInt(4, 1); // 默认等级
-            statement.setInt(5, 0); // 默认经验
-            statement.setString(6, "FREE"); // 默认跟随模式
-            
-            int affectedRows = statement.executeUpdate();
-            
-            if (affectedRows > 0) {
-                ResultSet generatedKeys = statement.getGeneratedKeys();
-                if (generatedKeys.next()) {
-                    int id = generatedKeys.getInt(1);
-                    VillagerData villager = new VillagerData(id, village.getId(), entityUUID, profession, 1, 0, "FREE");
-                    // 缓存新招募的村民
-                    CacheManager.cacheVillager(villager);
-                    // 清除村庄村民列表缓存
-                    CacheManager.invalidateVillageVillagers(village.getId());
-                    return villager;
-                }
+        try (Connection connection = DatabaseManager.getConnection()) {
+            String requiredProfession = EcoChainManager.getInstance()
+                    .getRequiredProfession(profession);
+            int id = OperationTransactions.recruitVillager(connection,
+                    DatabaseManager.getDialect(), village.getId(), entityUUID.toString(),
+                    profession, village.getVillagerLimit(), requiredProfession);
+            if (id > 0) {
+                VillagerData villager = new VillagerData(
+                        id, village.getId(), entityUUID, profession, 1, 0, "FREE");
+                CacheManager.cacheVillager(villager);
+                CacheManager.invalidateVillageVillagers(village.getId());
+                return villager;
             }
         } catch (SQLException e) {
             VillagerPro.getInstance().getLogger().warning("数据库操作失败：" + e.getMessage());
         }
-        
+
+        if (!CostHandler.refund(player, recruitCosts)) {
+            player.sendMessage("§c招募保存失败且费用未完整退还，请联系管理员");
+        }
         return null;
     }
     
@@ -310,7 +306,7 @@ public class VillagerManager {
                 Number amountObj = (Number) costEntry.get("amount");
                 double amount = amountObj != null ? amountObj.doubleValue() : 0;
                 
-                if ("itemsadder".equals(type)) {
+                if ("itemsadder".equals(type) || "item".equals(type)) {
                     String item = (String) costEntry.get("item");
                     costs.add(new CostEntry(type, amount, item));
                 } else {
@@ -328,8 +324,14 @@ public class VillagerManager {
      * @return 显示名称
      */
     public static String getProfessionDisplayName(String profession) {
-        return cn.popcraft.villagerpro.VillagerPro.getInstance().getConfig()
-                .getString("villager.professions." + profession + ".name", profession);
+        String configuredName = cn.popcraft.villagerpro.VillagerPro.getInstance().getConfig()
+                .getString("villager.professions." + profession + ".name");
+        if (configuredName != null) {
+            return configuredName;
+        }
+        EcoChainManager.NewProfession newProfession =
+                EcoChainManager.getInstance().getNewProfession(profession);
+        return newProfession == null ? profession : newProfession.getName();
     }
     
     /**

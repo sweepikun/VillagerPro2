@@ -2,6 +2,7 @@ package cn.popcraft.villagerpro.models;
 
 import cn.popcraft.villagerpro.VillagerPro;
 import cn.popcraft.villagerpro.managers.VillagerUpgradeManager;
+import cn.popcraft.villagerpro.util.GameplayMath;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
@@ -179,7 +180,8 @@ public class VillagerData {
             Map<String, Integer> villagerSkills = getSkills();
             Integer wideRangeLevel = villagerSkills.get("wide_range");
             if (wideRangeLevel != null) {
-                baseRange += wideRangeLevel * 2; // 每级广域耕作增加2格工作范围
+                baseRange += wideRangeLevel * VillagerUpgradeManager.getIntEffect(
+                        profession, "wide_range", "range_per_level", 2);
             }
         }
         
@@ -187,23 +189,15 @@ public class VillagerData {
     }
     
     /**
-     * 获取基础产出数量
-     * @return 基础产出数量
+     * 获取等级与技能结算后的单次产出，不含村庄、需求、工作站等倍率。
+     * @return 单次产出数量
      */
     public int getBaseProductionAmount() {
-        // 基础产出数量
         int baseAmount = VillagerPro.getInstance().getConfig().getInt("villager.professions." + profession + ".base_amount", 1);
-        
-        // 检查是否有高效收割技能（仅对农民有效）
-        if ("farmer".equals(profession)) {
-            Map<String, Integer> villagerSkills = getSkills();
-            Integer efficientHarvestLevel = villagerSkills.get("efficient_harvest");
-            if (efficientHarvestLevel != null) {
-                baseAmount += efficientHarvestLevel; // 每级高效收割增加1个产出
-            }
-        }
-        
-        return baseAmount;
+        int amountPerLevel = VillagerPro.getInstance().getConfig()
+                .getInt("villager.production_amount_per_level", 1);
+        return GameplayMath.productionAmount(baseAmount, level, amountPerLevel,
+                VillagerUpgradeManager.getProductionSkillBonus(this));
     }
     
     /**
@@ -215,6 +209,10 @@ public class VillagerData {
             skills = VillagerUpgradeManager.getVillagerUpgrades(id);
         }
         return skills;
+    }
+
+    public void reloadSkills() {
+        this.skills = VillagerUpgradeManager.getVillagerUpgrades(id);
     }
     
     /**

@@ -12,6 +12,10 @@ import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.event.player.PlayerMoveEvent;
 import org.bukkit.scheduler.BukkitRunnable;
 
+import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+
 /**
  * 访客事件处理
  * 处理玩家与访客的交互、靠近检测等事件
@@ -20,6 +24,7 @@ public class VisitorListener implements Listener {
     
     private final VisitorManager visitorManager;
     private final VillagerPro plugin;
+    private final Map<UUID, Long> tipCooldowns = new ConcurrentHashMap<>();
     
     public VisitorListener() {
         this.visitorManager = VisitorManager.getInstance();
@@ -117,7 +122,9 @@ public class VisitorListener implements Listener {
             if (!visitor.isActive() || visitor.getEntity() == null) {
                 continue;
             }
-            
+            if (!player.getWorld().equals(visitor.getEntity().getWorld())) {
+                continue;
+            }
             double distance = player.getLocation().distance(visitor.getEntity().getLocation());
             if (distance <= 5.0) {
                 // 显示提示信息（只显示一次）
@@ -131,6 +138,11 @@ public class VisitorListener implements Listener {
      * 显示访客提示
      */
     private void showVisitorTip(Player player, VisitorData visitor) {
+        long now = System.currentTimeMillis();
+        long nextAllowed = tipCooldowns.getOrDefault(player.getUniqueId(), 0L);
+        if (now < nextAllowed) return;
+        tipCooldowns.put(player.getUniqueId(), now + 30_000L);
+
         // 使用延迟来避免频繁显示
         new BukkitRunnable() {
             @Override

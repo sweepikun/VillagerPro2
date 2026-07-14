@@ -7,6 +7,28 @@
 debug: false
 
 # ==============================
+# 数据库
+# ==============================
+database:
+  # sqlite（默认、本地文件）或 mysql（建议 MySQL 8.0+）
+  type: sqlite
+  sqlite:
+    file: "plugins/VillagerPro/database.db"
+  mysql:
+    host: localhost
+    port: 3306
+    database: villagerpro
+    username: root
+    password: ""
+    use_ssl: false
+    server_timezone: "Asia/Shanghai"
+  pool:
+    # SQLite 会自动限制为单连接；以下连接数配置用于 MySQL
+    maximum_size: 10
+    minimum_idle: 2
+    connection_timeout_ms: 30000
+
+# ==============================
 # 经济系统
 # ==============================
 economy:
@@ -36,9 +58,7 @@ village:
     - # 2 → 3
       costs:
         - type: "vault"
-          amount: 800
-        - type: "vault"
-          amount: 300
+          amount: 1100
     - # 3 → 4
       costs:
         - type: "playerpoints"
@@ -50,14 +70,12 @@ village:
         - type: "vault"
           amount: 2000
         - type: "playerpoints"
-          amount: 500
-        - type: "playerpoints"
-          amount: 100
+          amount: 600
 
   # 基础村民数量上限（每级可额外增加，见 upgrade_skills）
   base_villager_limit: 3
 
-  # 仓库基础容量（格子数）
+  # 仓库基础容量（物品总数量，不是箱子格数）
   base_warehouse_capacity: 50
   # 每级额外仓库容量
   warehouse_capacity_per_level: 25
@@ -76,6 +94,9 @@ village_upgrades:
       description: "农民产出+20%，收集范围+2格"
       icon: WHEAT
       max_level: 3
+      effects:
+        production_bonus_per_level: 0.20
+        range_per_level: 2
       costs:
         - type: "vault"
           amount: 300
@@ -85,6 +106,9 @@ village_upgrades:
       description: "渔夫钓鱼间隔-10%，宝藏概率+5%"
       icon: COD
       max_level: 2
+      effects:
+        interval_reduction_per_level: 0.10
+        treasure_chance_per_level: 0.05
       costs:
         - type: "vault"
           amount: 400
@@ -96,6 +120,8 @@ village_upgrades:
       description: "村民上限+1"
       icon: OAK_DOOR
       max_level: 5
+      effects:
+        capacity_per_level: 1
       costs:
         - type: "vault"
           amount: 600
@@ -105,6 +131,8 @@ village_upgrades:
       description: "仓库容量+50格"
       icon: CHEST
       max_level: 4
+      effects:
+        capacity_per_level: 50
       costs:
         - type: "playerpoints"
           amount: 100
@@ -114,6 +142,8 @@ village_upgrades:
       description: "玩家附近怪物生成率-10%"
       icon: TORCH
       max_level: 2
+      effects:
+        spawn_reduction_per_level: 0.10
       costs:
         - type: "vault"
           amount: 200
@@ -124,16 +154,18 @@ village_upgrades:
 villager:
   # 村民升级所需基础经验（每级需要的经验 = 当前等级 * base_exp_per_level）
   base_exp_per_level: 100
+  # 普通生产职业每个额外等级增加的单次基础产量
+  production_amount_per_level: 1
 
   # 招募成本（支持多资源）
   recruit_cost:
     - type: "vault"
-      amount: 500
-    - type: "vault"
-      amount: 100
+      amount: 600
 
   # 工作间隔（ticks，默认 2400 = 2分钟）
   work_interval_ticks: 2400
+  # 到期检查间隔；较短的检查间隔才能让“快速垂钓”等加速真实生效
+  work_check_interval_ticks: 20
   # 工作半径（方块）
   work_range: 5
 
@@ -152,6 +184,7 @@ villager:
       work_items: [COD, SALMON, TROPICAL_FISH, PUFFERFISH]
       base_amount: 2
       probability: 0.6
+      treasure_item: HEART_OF_THE_SEA
 
     shepherd:
       name: "牧羊人"
@@ -163,12 +196,15 @@ villager:
     librarian:
       name: "图书管理员"
       icon: ENCHANTED_BOOK
-      # 图书管理员不产出物品，但可提供附魔服务（未来扩展）
+      work_items: [BOOK, EXPERIENCE_BOTTLE]
+      base_amount: 1
+      probability: 0.4
+      special_item: ENCHANTED_BOOK
 
     priest:
       name: "祭司"
       icon: POTION
-      work_items: [AWKWARD_POTION, THICK_POTION]
+      work_items: [POTION]
       base_amount: 1
       probability: 0.5
 
@@ -178,122 +214,152 @@ villager:
       work_items: [MAP]
       base_amount: 1
       probability: 0.4
-      # 每日最多产出1张地图（需额外逻辑限制）
+      treasure_item: FILLED_MAP
 
 # ==============================
 # 村民技能树（按职业）
 # ==============================
 villager_upgrades:
   farmer:
-    - id: efficient_harvest
+    efficient_harvest:
       name: "高效收割"
       description: "每次多收1个作物"
       icon: GOLDEN_HOE
       max_level: 5
+      effects:
+        amount_per_level: 1
       cost_multiplier: 1.5  # 每级成本 = 基础 × (1.5 ^ (level-1))
+      costs:
+        - type: "vault"
+          amount: 200
 
-    - id: wide_range
+    wide_range:
       name: "广域耕作"
       description: "工作范围+2格"
       icon: MAP
       max_level: 2
+      effects:
+        range_per_level: 2
       costs:
         - type: "vault"
           amount: 400
 
   fisherman:
-    - id: fast_fishing
+    fast_fishing:
       name: "快速垂钓"
       description: "钓鱼间隔-20%"
       icon: FISHING_ROD
       max_level: 3
+      effects:
+        interval_reduction_per_level: 0.20
       cost_multiplier: 1.6
+      costs:
+        - type: "vault"
+          amount: 250
 
-    - id: treasure_hunter
+    treasure_hunter:
       name: "寻宝专家"
       description: "获得宝藏概率+10%"
       icon: HEART_OF_THE_SEA
       max_level: 2
+      effects:
+        treasure_chance_per_level: 0.10
       costs:
         - type: "playerpoints"
           amount: 60
 
   shepherd:
-    - id: efficient_shearing
+    efficient_shearing:
       name: "高效剪毛"
       description: "每次多收1个羊毛"
       icon: SHEARS
       max_level: 5
+      effects:
+        amount_per_level: 1
       cost_multiplier: 1.4
       costs:
         - type: "vault"
           amount: 200
 
-    - id: wool_expert
+    wool_expert:
       name: "羊毛专家"
-      description: "多色羊毛产出"
-      icon: RAINBOW_WOOL
-      max_level: 3
+      description: "每级解锁一种额外颜色羊毛"
+      icon: WHITE_WOOL
+      max_level: 2
+      effects:
+        colors_per_level: 1
       costs:
         - type: "playerpoints"
           amount: 50
 
   priest:
-    - id: potion_master
+    potion_master:
       name: "药剂大师"
       description: "每次多产1瓶药剂"
       icon: BREWING_STAND
       max_level: 4
+      effects:
+        amount_per_level: 1
       cost_multiplier: 1.5
       costs:
         - type: "vault"
           amount: 300
 
-    - id: health_boost
+    health_boost:
       name: "生命祝福"
-      description: "村庄居民生命值+1"
-      icon: HEART
+      description: "村庄内所有已招募村民最大生命值+1"
+      icon: RED_DYE
       max_level: 2
+      effects:
+        max_health_per_level: 1.0
       costs:
         - type: "vault"
           amount: 400
 
   librarian:
-    - id: enchantment_expert
+    enchantment_expert:
       name: "附魔专家"
-      description: "提供更高级的附魔服务"
+      description: "每级+10%概率额外产出附魔书"
       icon: ENCHANTING_TABLE
       max_level: 3
+      effects:
+        special_chance_per_level: 0.10
       cost_multiplier: 1.6
       costs:
         - type: "playerpoints"
           amount: 80
 
-    - id: knowledge_bonus
+    knowledge_bonus:
       name: "知识加成"
-      description: "所有村民经验获取+10%"
+      description: "村庄内所有村民经验获取+10%"
       icon: BOOKSHELF
       max_level: 2
+      effects:
+        experience_bonus_per_level: 0.10
       costs:
         - type: "playerpoints"
           amount: 150
 
   cartographer:
-    - id: map_expert
+    map_expert:
       name: "制图专家"
-      description: "每天多产1张地图"
+      description: "每次工作多产1张地图"
       icon: MAP
       max_level: 3
+      effects:
+        amount_per_level: 1
       cost_multiplier: 1.5
       costs:
         - type: "vault"
           amount: 250
 
-    - id: treasure_map
+    treasure_map:
       name: "藏宝图"
-      description: "提供特殊藏宝图"
-      icon: TREASURE_MAP
+      description: "每级+10%概率额外产出一张藏宝图"
+      icon: FILLED_MAP
       max_level: 2
+      effects:
+        treasure_chance_per_level: 0.10
       costs:
         - type: "vault"
           amount: 350
@@ -338,9 +404,14 @@ visitors:
   # 商人配置
   merchant:
     enabled: true
+    # stock 是每位访客携带的总批次数；per_player_limit 是每名玩家最多购买的批次数
+    # id 必须稳定且唯一，修改名称不会重置同一访客的库存记录
     # 商人出售的物品
     items:
-      - item: "villagerpro:village_token"
+      - id: village_token
+        item: "villagerpro:village_token"
+        stock: 3
+        per_player_limit: 1
         price:
           - type: "vault"
             amount: 500
@@ -348,7 +419,10 @@ visitors:
         description: "村庄升级材料"
         rarity: "rare"
         
-      - item: "villagerpro:golden_seed"
+      - id: golden_seed
+        item: "villagerpro:golden_seed"
+        stock: 4
+        per_player_limit: 1
         price:
           - type: "playerpoints"
             amount: 100
@@ -356,7 +430,11 @@ visitors:
         description: "提升农民效率"
         rarity: "epic"
         
-      - item: WHEAT_SEEDS
+      - id: quality_seeds
+        item: WHEAT_SEEDS
+        amount: 8
+        stock: 12
+        per_player_limit: 3
         price:
           - type: "vault"
             amount: 50
@@ -409,10 +487,9 @@ visitors:
           
       winter:
         name: "冬季节"
-        description: "冬季温暖，抵御寒冷"
+        description: "领取一份冬日药水礼物"
         duration_hours: 72
         effect:
-          cold_resistance: true
           item: "POTION"
           amount: 1
 
@@ -429,8 +506,6 @@ personality:
     base_loyalty: 50
     # 最高忠诚度
     max_loyalty: 100
-    # 离开村庄的忠诚度阈值
-    leave_threshold: 20
     
   # 情绪配置
   mood:
@@ -441,6 +516,8 @@ personality:
     
   # 互动奖励
   interactions:
+    # 同一村民互动冷却（秒）
+    cooldown_seconds: 30
     # 送礼影响
     gift_boost: 10
     # 保护村民奖励
@@ -464,8 +541,8 @@ decorations:
       cost:
         - type: "vault"
           amount: 100
-        - type: "itemsadder"
-          item: "villagerpro:glass_cylinder"
+        - type: "item"
+          item: "GLASS"
           amount: 2
       prosperity_boost: 5
       world_interaction: true
@@ -475,7 +552,7 @@ decorations:
       description: "美化村庄环境"
       material: POPPY
       cost:
-        - type: "itemsadder"
+        - type: "item"
           item: "FLOWER_POT"
           amount: 1
         - type: "vault"
@@ -510,16 +587,16 @@ defense:
     cost:
       - type: "vault"
         amount: 200
-      - type: "itemsadder"
-        item: "villagerpro:guard_token"
-        amount: 1
+      - type: "item"
+        item: "IRON_INGOT"
+        amount: 16
         
   # 避难所配置
-    shelter:
-      # 夜晚避难所
-      auto_shelter:
-        enabled: true
-        trigger_world_time: 13000  # 夜晚时间
+  shelter:
+    # 夜晚避难所
+    auto_shelter:
+      enabled: true
+      trigger_world_time: 13000  # 夜晚时间
         
   # 村庄守护效果
   protection:
@@ -545,29 +622,18 @@ alliance:
     # 最低村庄等级要求
     min_village_level: 2
     
-  # 共享资源
-  sharing:
-    # 是否共享仓库
-    warehouse_sharing: true
-    # 共享比例（百分比）
-    sharing_percentage: 20
-    
-  # 联盟升级
-    alliance_boosts:
-      # 联盟守护（减少怪物生成）
-      regional_guard:
-        level_requirement: 3
-        monster_reduction: 15
-        cost:
-          - type: "vault"
-            amount: 1000
-
 # ==============================
 # 生态联动系统
 # ==============================
 eco_chain:
   # 是否启用生态联动
   enabled: true
+  # 加工职业按自己的工作周期从仓库取料；关闭后恢复旧版“生产时立即加工”
+  stored_processing_enabled: true
+  # 加工职业每级会增加一批周期处理能力，但不会超过配方自身上限
+  processing_base_batches: 1
+  # 达到配方批次上限后，额外等级仍会提高实际成品期望数量
+  processing_output_bonus_per_level: 0.05
   
   # 职业协作链配置
   profession_chains:
@@ -590,24 +656,15 @@ eco_chain:
           produces: "WHITE_WOOL"
         - profession: "weaver"
           consumes: "WHITE_WOOL"
-          produces: "WHITE_WOOL"
+          produces: "WHITE_CARPET"
           ratio: 5  # 5羊毛 -> 1地毯
           
-  # 工作站识别（轻量版本）
-  workstation_detection:
-    enabled: true
-    # 效率加成（百分比）
-    efficiency_boost: 20
-    # 识别范围（方块）
-    detection_range: 3
-    
   # 新职业配置
   new_professions:
     baker:
       name: "面包师"
       icon: BREAD
       requires: "farmer"  # 需要农民作为前置
-      work_interval_ticks: 1200
       produces: "BREAD"
       efficiency: 0.8
       
@@ -615,16 +672,443 @@ eco_chain:
       name: "织布工"
       icon: "WHITE_WOOL"
       requires: "shepherd"  # 需要牧羊人作为前置
-      work_interval_ticks: 1800
-      produces: "WHITE_WOOL"
+      produces: "WHITE_CARPET"
       efficiency: 0.6
+
+  # 高优先级配方先尝试，因此高级成品会优先消耗上一步产物
+  processing_recipes:
+    pastry_baking:
+      name: "糕点烘焙"
+      profession: baker
+      priority: 20
+      max_batches_per_cycle: 2
+      efficiency: 0.70
+      inputs: {BREAD: 3}
+      outputs: {COOKIE: 6}
+    bread_baking:
+      name: "面包烘焙"
+      profession: baker
+      priority: 10
+      max_batches_per_cycle: 4
+      efficiency: 0.80
+      inputs: {WHEAT: 3}
+      outputs: {BREAD: 1}
+    textile_art:
+      name: "织物工艺"
+      profession: weaver
+      priority: 20
+      max_batches_per_cycle: 2
+      efficiency: 0.65
+      inputs: {WHITE_CARPET: 6}
+      outputs: {PAINTING: 1}
+    carpet_weaving:
+      name: "地毯织造"
+      profession: weaver
+      priority: 10
+      max_batches_per_cycle: 4
+      efficiency: 0.75
+      inputs: {WHITE_WOOL: 4}
+      outputs: {WHITE_CARPET: 3}
+
+# ==============================
+# 村民职业专精
+# ==============================
+specializations:
+  enabled: true
+  required_villager_level: 3
+  max_level: 3
+  selection_cost: 300
+  upgrade_base_cost: 250
+  respec_cost: 500
+  professions:
+    farmer:
+      abundance:
+        name: "丰产农艺"
+        description: "每级使实际作物产量提高15%"
+        icon: HAY_BLOCK
+        effects:
+          production_bonus: 0.15
+      horticulturist:
+        name: "珍品园艺"
+        description: "每级增加8%概率额外产出金胡萝卜"
+        icon: GOLDEN_CARROT
+        effects:
+          rare_item: GOLDEN_CARROT
+          rare_chance: 0.08
+    fisherman:
+      swift_angler:
+        name: "疾速垂钓"
+        description: "每级额外缩短8%工作周期"
+        icon: CLOCK
+        effects:
+          interval_reduction: 0.08
+      deep_sea_hunter:
+        name: "深海猎手"
+        description: "每级增加8%海洋宝藏概率"
+        icon: NAUTILUS_SHELL
+        effects:
+          treasure_chance: 0.08
+    shepherd:
+      fleece_master:
+        name: "丰绒大师"
+        description: "每级使羊毛产量提高15%"
+        icon: WHITE_WOOL
+        effects:
+          production_bonus: 0.15
+      chain_artisan:
+        name: "织造协作"
+        description: "每级使羊毛生态链加工成功率提高10%"
+        icon: LOOM
+        effects:
+          chain_efficiency: 0.10
+    librarian:
+      scholar:
+        name: "村庄学者"
+        description: "每级使该村民获得的经验提高10%"
+        icon: BOOKSHELF
+        effects:
+          experience_bonus: 0.10
+      enchanter:
+        name: "典籍附魔师"
+        description: "每级增加8%概率额外产出附魔书"
+        icon: ENCHANTED_BOOK
+        effects:
+          rare_item: ENCHANTED_BOOK
+          rare_chance: 0.08
+    priest:
+      alchemist:
+        name: "炼金药师"
+        description: "每级使药水产量提高15%"
+        icon: CAULDRON
+        effects:
+          production_bonus: 0.15
+      guardian:
+        name: "生命守护者"
+        description: "每级使该村民最大生命值提高1"
+        icon: GOLDEN_APPLE
+        effects:
+          health_bonus: 1.0
+    cartographer:
+      surveyor:
+        name: "精密测绘"
+        description: "每级使地图产量提高15%"
+        icon: CARTOGRAPHY_TABLE
+        effects:
+          production_bonus: 0.15
+      explorer:
+        name: "遗迹探索者"
+        description: "每级增加8%藏宝图概率"
+        icon: FILLED_MAP
+        effects:
+          treasure_chance: 0.08
+
+# ==============================
+# 村民生活需求
+# ==============================
+needs:
+  enabled: true
+  check_interval_ticks: 1200
+  auto_consume_threshold: 65
+  workstation_comfort_per_hour: 6
+  decay:
+    hunger_per_hour: 8
+    comfort_per_hour: 5
+    health_per_hour: 3
+  supplies:
+    food:
+      items: [BREAD, CARROT, POTATO]
+      restore: 25
+    comfort:
+      items: [WHITE_WOOL, WHITE_CARPET]
+      restore: 20
+    health:
+      items: [POTION]
+      restore: 30
+  efficiency:
+    excellent_threshold: 75
+    excellent_bonus: 0.10
+    poor_threshold: 40
+    poor_penalty: 0.20
+    critical_threshold: 20
+    critical_penalty: 0.40
+
+# ==============================
+# 实体工作站
+# ==============================
+workstations:
+  enabled: true
+  active_range: 8
+  max_level: 3
+  # 1级无额外倍率，2/3级分别增加15%/30%
+  bonus_per_level: 0.15
+  materials:
+    farmer: COMPOSTER
+    fisherman: BARREL
+    shepherd: LOOM
+    librarian: LECTERN
+    priest: BREWING_STAND
+    cartographer: CARTOGRAPHY_TABLE
+    baker: SMOKER
+    weaver: LOOM
+  upgrade_costs:
+    2:
+      vault: 400
+      item: IRON_INGOT
+      amount: 8
+    3:
+      vault: 900
+      item: DIAMOND
+      amount: 2
+
+# ==============================
+# 每日村庄订单
+# ==============================
+orders:
+  enabled: true
+  daily_count: 3
+  # 实际金币不超过同批货物当前市场清算价值，防止买入后立即交单套利
+  market_value_cap_multiplier: 1.0
+  # 数量和奖励会随村庄等级按 per_level 线性增长
+  pool:
+    wheat_supply:
+      item: WHEAT
+      amount: 32
+      amount_per_level: 8
+      reward_money: 160
+      reward_money_per_level: 40
+      reward_prosperity: 8
+    fish_market:
+      item: COD
+      amount: 20
+      amount_per_level: 5
+      reward_money: 140
+      reward_money_per_level: 35
+      reward_prosperity: 7
+    wool_contract:
+      item: WHITE_WOOL
+      amount: 16
+      amount_per_level: 4
+      reward_money: 180
+      reward_money_per_level: 45
+      reward_prosperity: 9
+    library_request:
+      item: BOOK
+      amount: 12
+      amount_per_level: 3
+      reward_money: 220
+      reward_money_per_level: 55
+      reward_prosperity: 10
+    potion_delivery:
+      item: POTION
+      amount: 8
+      amount_per_level: 2
+      reward_money: 260
+      reward_money_per_level: 65
+      reward_prosperity: 12
+    bakery_shipment:
+      item: BREAD
+      amount: 12
+      amount_per_level: 3
+      reward_money: 240
+      reward_money_per_level: 60
+      reward_prosperity: 11
+    pastry_crates:
+      item: COOKIE
+      amount: 24
+      amount_per_level: 6
+      reward_money: 320
+      reward_money_per_level: 80
+      reward_prosperity: 14
+    artisan_exhibition:
+      item: PAINTING
+      amount: 4
+      amount_per_level: 1
+      reward_money: 420
+      reward_money_per_level: 100
+      reward_prosperity: 18
+
+production_stats:
+  # GUI 聚合最近多少分钟的生产事件
+  window_minutes: 60
+  # 生产日志保留天数
+  retention_days: 7
+
+# ==============================
+# 动态市场
+# ==============================
+market:
+  enabled: true
+  sell_factor: 0.85
+  buy_factor: 1.15
+  liquidity: 256
+  price_sensitivity: 1.0
+  maximum_pressure: 3.0
+  pressure_half_life_hours: 24
+  minimum_price_multiplier: 0.50
+  maximum_price_multiplier: 2.00
+  maximum_transaction_amount: 64
+  daily_volume_base: 128
+  daily_volume_per_village_level: 32
+  trade_history_retention_days: 30
+  items:
+    WHEAT: {base_price: 2.0}
+    CARROT: {base_price: 1.5}
+    POTATO: {base_price: 1.5}
+    COD: {base_price: 4.0}
+    SALMON: {base_price: 5.0}
+    WHITE_WOOL: {base_price: 5.0}
+    BOOK: {base_price: 12.0}
+    POTION: {base_price: 20.0}
+    MAP: {base_price: 15.0}
+    OAK_PLANKS: {base_price: 1.0}
+    EMERALD: {base_price: 25.0}
+    BREAD: {base_price: 8.0}
+    WHITE_CARPET: {base_price: 10.0}
+    COOKIE: {base_price: 6.0}
+    PAINTING: {base_price: 80.0}
+
+# ==============================
+# 村庄政策
+# ==============================
+policies:
+  enabled: true
+  # 选定后不可中途更换，避免玩家只在结算瞬间切换政策
+  duration_hours: 24
+  overtime:
+    production_multiplier: 1.20
+    needs_decay_multiplier: 1.25
+  welfare:
+    needs_decay_multiplier: 0.75
+    consume_threshold_bonus: 15
+    supply_restore_multiplier: 1.20
+  export:
+    market_sell_multiplier: 1.10
+    market_buy_multiplier: 1.05
+    order_reward_multiplier: 0.85
+  reserve:
+    capacity_multiplier: 1.20
+    frozen_stock_fraction: 0.15
+
+# ==============================
+# 村庄危机
+# ==============================
+crises:
+  enabled: true
+  check_interval_ticks: 1200
+  initial_delay_hours: 6
+  roll_interval_hours: 12
+  trigger_chance_per_roll: 0.25
+  duration_hours: 24
+  resolution_prosperity_reward: 10
+  failure_prosperity_penalty: 15
+  # 对应功能建筑每级削弱 15% 的危机负面幅度，而非直接抵消危机
+  building_mitigation_per_level: 0.15
+  types:
+    harvest_failure:
+      required_item: BREAD
+      required_amount: 24
+      required_per_level: 8
+      production_multiplier: 0.65
+    epidemic:
+      required_item: POTION
+      required_amount: 8
+      required_per_level: 2
+      production_multiplier: 0.80
+      needs_decay_multiplier: 1.50
+    fire:
+      required_item: OAK_PLANKS
+      required_amount: 32
+      required_per_level: 8
+      production_multiplier: 0.75
+    trade_blockade:
+      required_item: EMERALD
+      required_amount: 16
+      required_per_level: 4
+      market_sell_multiplier: 0.65
+      market_buy_multiplier: 1.35
+
+# ==============================
+# 商队贸易路线
+# ==============================
+caravans:
+  enabled: true
+  check_interval_ticks: 1200
+  minimum_cargo: 8
+  maximum_cargo: 64
+  max_active_routes: 2
+  history_retention_days: 30
+  risk_reduction_per_village_level: 0.02
+  destinations:
+    capital:
+      accepted_items: [BREAD, COOKIE, PAINTING, BOOK]
+      return_item: EMERALD
+      duration_minutes: 60
+      return_value_multiplier: 0.75
+      risk_chance: 0.10
+    coast:
+      accepted_items: [WHITE_WOOL, WHITE_CARPET, MAP]
+      return_item: COD
+      duration_minutes: 45
+      return_value_multiplier: 0.80
+      risk_chance: 0.08
+    frontier:
+      accepted_items: [BREAD, POTATO, CARROT]
+      return_item: OAK_PLANKS
+      duration_minutes: 30
+      return_value_multiplier: 0.75
+      risk_chance: 0.12
+    apothecary:
+      accepted_items: [BOOK, MAP, EMERALD]
+      return_item: POTION
+      duration_minutes: 90
+      return_value_multiplier: 0.70
+      risk_chance: 0.06
+
+# ==============================
+# 村庄功能建筑
+# ==============================
+buildings:
+  enabled: true
+  # 以核心为中心扫描 7×6×7 方块，不会强制加载区块
+  scan_radius: 3
+  scan_down: 1
+  scan_up: 4
+  max_level: 3
+  minimum_core_distance: 7
+  revalidation_delay_ticks: 20
+  audit_interval_ticks: 2400
+  audit_batch_size: 2
+  types:
+    granary:
+      core: BARREL
+      capacity_per_level: 100
+      levels:
+        1: {barrels: 4, planks: 16, roof_columns: 6}
+        2: {barrels: 8, planks: 32, roof_columns: 8}
+        3: {barrels: 12, planks: 48, roof_columns: 9}
+    workshop:
+      core: CRAFTING_TABLE
+      production_bonus_per_level: 0.10
+      levels:
+        1: {furnaces: 2, anvils: 1, planks: 12, roof_columns: 6}
+        2: {furnaces: 4, anvils: 2, planks: 24, roof_columns: 8}
+        3: {furnaces: 6, anvils: 3, planks: 36, roof_columns: 9}
+    clinic:
+      core: BREWING_STAND
+      decay_reduction_per_level: 0.15
+      health_restore_bonus_per_level: 0.15
+      levels:
+        1: {beds: 2, brewing_stands: 1, bookshelves: 4, roof_columns: 6}
+        2: {beds: 4, brewing_stands: 2, bookshelves: 8, roof_columns: 8}
+        3: {beds: 6, brewing_stands: 3, bookshelves: 12, roof_columns: 9}
 
 # ==============================
 # 传承系统
 # ==============================
 legacy:
   # 是否启用传承系统
-  enabled: true
+  # 当前版本尚未开放玩家入口，保留配置供后续版本迁移
+  enabled: false
   
   # 传承配置
   config:
@@ -641,7 +1125,7 @@ legacy:
     # 提升村庄声望
     village_fame_boost: 25
     # 解锁特殊村民
-    unlock_special_villagers: true
+    unlock_special_villagers: false
 
 # ==============================
 # 玩法模块开关
@@ -653,8 +1137,15 @@ features:
   personality: true        # 村民个性
   decorations: true        # 村庄装饰
   defense: true            # 防御机制
-  legacy: true             # 传承系统
+  legacy: false            # 传承系统（实验模块，当前无玩家入口）
   alliance: false          # 联盟系统（默认关闭）
+  needs: true              # 村民生活需求
+  workstations: true       # 实体工作站绑定与升级
+  buildings: true          # 可检测、可失效的村庄功能建筑
+  market: true             # 全服供需驱动的仓库交易市场
+  policies: true           # 有实际收益与代价的限时村庄政策
+  crises: true             # 可提交救援物资、会真实影响经营的限时危机
+  caravans: true           # 有运输时间、风险和回程领取的资源转换路线
 
 # ==============================
 # 兼容性设置

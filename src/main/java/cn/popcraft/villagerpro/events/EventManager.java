@@ -18,6 +18,18 @@ public class EventManager implements Listener {
         
         // 注册GUI事件监听器
         VillagerPro.getInstance().getServer().getPluginManager().registerEvents(new GUIListener(), VillagerPro.getInstance());
+        VillagerPro.getInstance().getServer().getPluginManager()
+                .registerEvents(new WorkstationListener(), VillagerPro.getInstance());
+
+        if (VillagerPro.getInstance().getConfig().getBoolean("features.buildings", true)) {
+            VillagerPro.getInstance().getServer().getPluginManager()
+                    .registerEvents(new BuildingListener(), VillagerPro.getInstance());
+        }
+
+        if (VillagerPro.getInstance().getConfig().getBoolean("features.decorations", true)) {
+            VillagerPro.getInstance().getServer().getPluginManager()
+                    .registerEvents(new DecorationListener(), VillagerPro.getInstance());
+        }
         
         // 注册村民事件监听器
         if (VillagerPro.getInstance().getConfig().getBoolean("features.personality", true)) {

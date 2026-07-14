@@ -6,6 +6,8 @@ import cn.popcraft.villagerpro.managers.VillageUpgradeManager;
 import cn.popcraft.villagerpro.managers.VillagerManager;
 import cn.popcraft.villagerpro.managers.VillagerUpgradeManager;
 import cn.popcraft.villagerpro.managers.WarehouseManager;
+import cn.popcraft.villagerpro.managers.PolicyManager;
+import cn.popcraft.villagerpro.managers.CrisisManager;
 import cn.popcraft.villagerpro.scheduler.WorkScheduler;
 import cn.popcraft.villagerpro.models.Village;
 import cn.popcraft.villagerpro.models.VillagerData;
@@ -117,6 +119,87 @@ public class GUIManager {
         recruitMeta.setDisplayName("§d招募村民");
         recruitButton.setItemMeta(recruitMeta);
         gui.setItem(16, recruitButton);
+
+        if (VillagerPro.getInstance().getConfig().getBoolean("orders.enabled", true)) {
+            ItemStack ordersButton = new ItemStack(Material.WRITABLE_BOOK);
+            ItemMeta ordersMeta = ordersButton.getItemMeta();
+            ordersMeta.setDisplayName("§e每日订单");
+            ordersMeta.setLore(java.util.Arrays.asList("§7从仓库交付物资，获得金币与繁荣度"));
+            ordersButton.setItemMeta(ordersMeta);
+            gui.setItem(19, ordersButton);
+        }
+
+        ItemStack statsButton = new ItemStack(Material.CLOCK);
+        ItemMeta statsMeta = statsButton.getItemMeta();
+        statsMeta.setDisplayName("§b生产统计");
+        statsMeta.setLore(java.util.Arrays.asList("§7查看最近产量、成功率和停工原因"));
+        statsButton.setItemMeta(statsMeta);
+        gui.setItem(20, statsButton);
+
+        ItemStack rulesButton = new ItemStack(Material.COMPARATOR);
+        ItemMeta rulesMeta = rulesButton.getItemMeta();
+        rulesMeta.setDisplayName("§d仓库规则");
+        rulesMeta.setLore(java.util.Arrays.asList("§7设置保留量、生产开关和溢出处理"));
+        rulesButton.setItemMeta(rulesMeta);
+        gui.setItem(21, rulesButton);
+
+        if (VillagerPro.getInstance().getConfig().getBoolean("features.policies", true)) {
+            PolicyManager.ActivePolicy policy = PolicyManager.getActivePolicy(village.getId());
+            ItemStack policyButton = new ItemStack(Material.LECTERN);
+            ItemMeta policyMeta = policyButton.getItemMeta();
+            policyMeta.setDisplayName("§6村庄政策");
+            policyMeta.setLore(java.util.Arrays.asList(
+                    policy == null ? "§7当前未实行政策"
+                            : "§a当前: " + policy.type().getDisplayName(),
+                    "§e点击查看政策效果与剩余时间"));
+            policyButton.setItemMeta(policyMeta);
+            gui.setItem(22, policyButton);
+        }
+
+        if (VillagerPro.getInstance().getConfig().getBoolean("features.crises", true)) {
+            CrisisManager.ActiveCrisis crisis = CrisisManager.getActiveCrisis(village.getId());
+            ItemStack crisisButton = new ItemStack(Material.BELL);
+            ItemMeta crisisMeta = crisisButton.getItemMeta();
+            crisisMeta.setDisplayName(crisis == null ? "§a村庄安定" : "§c村庄危机");
+            crisisMeta.setLore(crisis == null
+                    ? java.util.Arrays.asList("§7当前没有危机", "§e点击查看状态")
+                    : java.util.Arrays.asList(
+                    "§c" + crisis.type().getDisplayName(),
+                    "§7救援: " + crisis.requiredItem() + " "
+                            + crisis.contributedAmount() + "/" + crisis.requiredAmount(),
+                    "§e点击查看影响与剩余时间"));
+            crisisButton.setItemMeta(crisisMeta);
+            gui.setItem(23, crisisButton);
+        }
+
+        if (VillagerPro.getInstance().getConfig().getBoolean("features.caravans", true)) {
+            ItemStack caravanButton = new ItemStack(Material.MINECART);
+            ItemMeta caravanMeta = caravanButton.getItemMeta();
+            caravanMeta.setDisplayName("§e商队路线");
+            caravanMeta.setLore(java.util.Arrays.asList(
+                    "§7查看运输中、待领取和失败记录",
+                    "§e点击查看商队状态"));
+            caravanButton.setItemMeta(caravanMeta);
+            gui.setItem(24, caravanButton);
+        }
+
+        if (VillagerPro.getInstance().getConfig().getBoolean("features.defense", true)) {
+            ItemStack guardButton = new ItemStack(Material.IRON_BLOCK);
+            ItemMeta guardMeta = guardButton.getItemMeta();
+            guardMeta.setDisplayName("§b召唤村庄守卫");
+            guardMeta.setLore(java.util.Arrays.asList(
+                    "§7达到配置等级后，可支付资源召唤限时铁傀儡守卫"));
+            guardButton.setItemMeta(guardMeta);
+            gui.setItem(12, guardButton);
+        }
+
+        if (VillagerPro.getInstance().getConfig().getBoolean("features.decorations", true)) {
+            ItemStack decorationButton = new ItemStack(Material.FLOWER_POT);
+            ItemMeta decorationMeta = decorationButton.getItemMeta();
+            decorationMeta.setDisplayName("§d村庄装饰");
+            decorationButton.setItemMeta(decorationMeta);
+            gui.setItem(17, decorationButton);
+        }
         
         // 联盟按钮（如果联盟功能启用）
         if (VillagerPro.getInstance().getConfig().getBoolean("features.alliance", false)) {
@@ -326,8 +409,22 @@ public class GUIManager {
         lore.add("§7等级: §e" + villager.getLevel());
         lore.add("§7经验: §e" + villager.getExperience());
         lore.add("§7跟随模式: §e" + villager.getFollowMode());
-        lore.add("§7工作范围: §e" + villager.getWorkRange() + "格");
-        lore.add("§7基础产出: §e" + villager.getBaseProductionAmount() + "个");
+        int effectiveWorkRange = villager.getWorkRange();
+        if ("farmer".equals(villager.getProfession())) {
+            effectiveWorkRange += village.getUpgrades().getOrDefault("farming_boost", 0)
+                    * VillageUpgradeManager.getIntEffect(
+                    "farming_boost", "range_per_level", 2);
+        }
+        lore.add("§7有效工作范围: §e" + effectiveWorkRange + "格");
+        if (cn.popcraft.villagerpro.managers.EcoChainManager.getInstance()
+                .hasProcessingRecipes(villager.getProfession())) {
+            double levelMultiplier = cn.popcraft.villagerpro.util.GameplayMath.levelMultiplier(
+                    villager.getLevel(), VillagerPro.getInstance().getConfig().getDouble(
+                            "eco_chain.processing_output_bonus_per_level", 0.05));
+            lore.add("§7等级成品倍率: §e" + String.format("%.0f%%", levelMultiplier * 100));
+        } else {
+            lore.add("§7等级/技能产出: §e" + villager.getBaseProductionAmount() + "个");
+        }
         meta.setLore(lore);
         
         villagerItem.setItemMeta(meta);
@@ -339,6 +436,42 @@ public class GUIManager {
         upgradeMeta.setDisplayName("§a升级村民");
         upgradeButton.setItemMeta(upgradeMeta);
         gui.setItem(11, upgradeButton);
+
+        ItemStack specializationButton = new ItemStack(Material.NETHER_STAR);
+        ItemMeta specializationMeta = specializationButton.getItemMeta();
+        specializationMeta.setDisplayName("§d职业专精");
+        cn.popcraft.villagerpro.models.VillagerSpecialization specialization =
+                cn.popcraft.villagerpro.managers.SpecializationManager
+                        .getSpecialization(villager.getId());
+        specializationMeta.setLore(java.util.Arrays.asList(specialization == null
+                ? "§7尚未选择互斥专精分支"
+                : "§7当前: §f" + cn.popcraft.villagerpro.managers.SpecializationManager
+                        .getBranchName(villager.getProfession(), specialization.getBranchId())
+                        + " " + specialization.getLevel() + "级"));
+        specializationButton.setItemMeta(specializationMeta);
+        gui.setItem(10, specializationButton);
+
+        ItemStack needsButton = new ItemStack(Material.APPLE);
+        ItemMeta needsMeta = needsButton.getItemMeta();
+        needsMeta.setDisplayName("§a生活需求");
+        cn.popcraft.villagerpro.models.VillagerNeeds needs =
+                cn.popcraft.villagerpro.managers.NeedsManager.getNeeds(villager.getId());
+        needsMeta.setLore(java.util.Arrays.asList(
+                "§7温饱/舒适/健康最低值: §f" + String.format("%.0f", needs.getLowestValue()),
+                "§7需求会实际改变生产效率"));
+        needsButton.setItemMeta(needsMeta);
+        gui.setItem(12, needsButton);
+
+        ItemStack workstationButton = new ItemStack(Material.CRAFTING_TABLE);
+        ItemMeta workstationMeta = workstationButton.getItemMeta();
+        workstationMeta.setDisplayName("§6实体工作站");
+        String workstationIssue = cn.popcraft.villagerpro.managers.WorkstationManager
+                .getOperationalIssue(villager);
+        workstationMeta.setLore(java.util.Arrays.asList(workstationIssue == null
+                ? "§a工作站正常"
+                : "§c" + workstationIssue));
+        workstationButton.setItemMeta(workstationMeta);
+        gui.setItem(14, workstationButton);
         
         // 跟随模式按钮
         ItemStack followButton = new ItemStack(Material.LEAD);
@@ -470,9 +603,11 @@ public class GUIManager {
         List<cn.popcraft.villagerpro.models.WarehouseItem> warehouseItems = 
             cn.popcraft.villagerpro.managers.WarehouseManager.getWarehouseItems(village.getId());
         
-        // 创建GUI (根据物品数量调整大小，最大54个格子)
-        int size = Math.min(((warehouseItems.size() / 9) + 1) * 9, 54);
-        size = Math.max(size, 9); // 至少1行
+        warehouseItems.removeIf(item -> item.getAmount() <= 0);
+
+        // 至少一行内容和一行控制按钮，最多 5 行内容。
+        int contentRows = Math.max(1, (warehouseItems.size() + 8) / 9);
+        int size = Math.min((contentRows + 1) * 9, 54);
         
         Inventory gui = Bukkit.createInventory(null, size, GUI_PREFIX + "村庄仓库");
         
@@ -491,6 +626,13 @@ public class GUIManager {
             
             List<String> lore = new java.util.ArrayList<>();
             lore.add("§7数量: §e" + item.getAmount());
+            cn.popcraft.villagerpro.managers.WarehouseRuleManager.ItemRule rule =
+                    cn.popcraft.villagerpro.managers.WarehouseRuleManager.getItemRule(
+                            village.getId(), item.getItemType());
+            lore.add("§7保留量: §f" + rule.getReserveAmount());
+            lore.add("§7可提取: §f" + cn.popcraft.villagerpro.managers.WarehouseManager
+                    .getExtractableAmount(village.getId(), item.getItemType()));
+            lore.add("§7生产: " + (rule.isProductionEnabled() ? "§a开启" : "§c停产"));
             lore.add("");
             lore.add("§e左键§7提取全部");
             lore.add("§e右键§7提取一组");
@@ -516,6 +658,12 @@ public class GUIManager {
         backMeta.setDisplayName("§c返回");
         backButton.setItemMeta(backMeta);
         gui.setItem(size - 9, backButton);
+
+        ItemStack rulesButton = new ItemStack(Material.COMPARATOR);
+        ItemMeta rulesMeta = rulesButton.getItemMeta();
+        rulesMeta.setDisplayName("§d仓库规则");
+        rulesButton.setItemMeta(rulesMeta);
+        gui.setItem(size - 5, rulesButton);
         
         // 关闭按钮
         ItemStack closeButton = new ItemStack(Material.BARRIER);
@@ -612,6 +760,33 @@ public class GUIManager {
         cartographerMeta.setLore(cartographerLore);
         cartographer.setItemMeta(cartographerMeta);
         gui.setItem(16, cartographer);
+
+        if (VillagerPro.getInstance().getConfig().getBoolean("features.eco_chain", true)) {
+            cn.popcraft.villagerpro.managers.EcoChainManager eco =
+                    cn.popcraft.villagerpro.managers.EcoChainManager.getInstance();
+            if (eco.hasPrerequisites(village, "baker")) {
+                ItemStack baker = new ItemStack(Material.BREAD);
+                ItemMeta meta = baker.getItemMeta();
+                meta.setDisplayName("§e面包师");
+                List<String> lore = new java.util.ArrayList<>();
+                lore.add("§7将农民的小麦加工成面包");
+                lore.addAll(getRecruitCostLore());
+                meta.setLore(lore);
+                baker.setItemMeta(meta);
+                gui.setItem(13, baker);
+            }
+            if (eco.hasPrerequisites(village, "weaver")) {
+                ItemStack weaver = new ItemStack(Material.LOOM);
+                ItemMeta meta = weaver.getItemMeta();
+                meta.setDisplayName("§e织布工");
+                List<String> lore = new java.util.ArrayList<>();
+                lore.add("§7将牧羊人的羊毛加工成地毯");
+                lore.addAll(getRecruitCostLore());
+                meta.setLore(lore);
+                weaver.setItemMeta(meta);
+                gui.setItem(22, weaver);
+            }
+        }
         
         // 返回按钮
         ItemStack backButton = new ItemStack(Material.ARROW);
@@ -643,24 +818,15 @@ public class GUIManager {
         
         org.bukkit.configuration.file.FileConfiguration config = VillagerPro.getInstance().getConfig();
         
-        // 检查村庄是否已达到最高等级
-        int maxLevel = config.getInt("village.max_level", 5);
-        if (village.getLevel() >= maxLevel) {
-            player.sendMessage("§c 村庄已达到最高等级！");
+        if (VillageUpgradeManager.getAvailableUpgradePoints(village) <= 0) {
+            player.sendMessage("§c 当前没有可用的村庄技能点，请先提升村庄等级！");
             return;
         }
         
         Inventory gui = Bukkit.createInventory(null, 27, GUI_PREFIX + "村庄升级");
         
-        // 获取所有升级选项（不仅仅是未达最高等级的）
-        List<String> allUpgradeOptions = new java.util.ArrayList<>();
-        if (config.contains("village_upgrades.available_upgrades")) {
-            org.bukkit.configuration.ConfigurationSection section = config
-                .getConfigurationSection("village_upgrades.available_upgrades");
-            if (section != null) {
-                allUpgradeOptions.addAll(section.getKeys(false));
-            }
-        }
+        int optionCount = Math.max(1, config.getInt("village_upgrades.options_per_level", 3));
+        List<String> allUpgradeOptions = VillageUpgradeManager.getRandomUpgradeOptions(village, optionCount);
         
         // 显示升级选项
         int slot = 10; // 起始槽位（第11格）

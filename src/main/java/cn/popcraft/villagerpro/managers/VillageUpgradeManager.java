@@ -2,6 +2,7 @@ package cn.popcraft.villagerpro.managers;
 
 import cn.popcraft.villagerpro.VillagerPro;
 import cn.popcraft.villagerpro.database.DatabaseManager;
+import cn.popcraft.villagerpro.database.OperationTransactions;
 import cn.popcraft.villagerpro.economy.CostEntry;
 import cn.popcraft.villagerpro.economy.CostHandler;
 import cn.popcraft.villagerpro.models.Village;
@@ -78,28 +79,29 @@ public class VillageUpgradeManager {
      * @return 是否应用成功
      */
     public static boolean applyVillageUpgrade(Village village, String upgradeId) {
-        int currentLevel = getVillageUpgradeLevel(village.getId(), upgradeId);
-        int maxLevel = cn.popcraft.villagerpro.VillagerPro.getInstance().getConfig()
-                .getInt("village_upgrades.available_upgrades." + upgradeId + ".max_level", 1);
-        
-        // 检查是否已达最高等级
-        if (currentLevel >= maxLevel) {
-            return false;
-        }
-        
-        try (Connection connection = DatabaseManager.getConnection();
-             PreparedStatement statement = connection.prepareStatement(
-                     "INSERT OR REPLACE INTO village_upgrades (village_id, upgrade_id, level) VALUES (?, ?, ?)")) {
-            
-            statement.setInt(1, village.getId());
-            statement.setString(2, upgradeId);
-            statement.setInt(3, currentLevel + 1);
-            
-            return statement.executeUpdate() > 0;
+        return applyVillageUpgrade(village, upgradeId,
+                getVillageUpgradeLevel(village.getId(), upgradeId));
+    }
+
+    public static boolean applyVillageUpgrade(Village village, String upgradeId,
+                                              int expectedLevel) {
+        int maxLevel = getUpgradeMaxLevel(upgradeId);
+        try (Connection connection = DatabaseManager.getConnection()) {
+            return OperationTransactions.upgradeVillageSkill(connection,
+                    DatabaseManager.getDialect(), village.getId(), upgradeId,
+                    expectedLevel, maxLevel);
         } catch (SQLException e) {
             VillagerPro.getInstance().getLogger().warning("数据库操作失败：" + e.getMessage());
             return false;
         }
+    }
+
+    /** 每个村庄等级（1级除外）提供一个技能点。 */
+    public static int getAvailableUpgradePoints(Village village) {
+        int spentPoints = getVillageUpgrades(village.getId()).values().stream()
+                .mapToInt(Integer::intValue)
+                .sum();
+        return Math.max(0, village.getLevel() - 1 - spentPoints);
     }
     
     /**
@@ -127,17 +129,11 @@ public class VillageUpgradeManager {
             }
         }
         
-        // 随机选择指定数量的升级
-        List<String> options = new ArrayList<>();
-        Random random = new Random();
-        int selectCount = Math.min(count, availableUpgrades.size());
-        
-        while (options.size() < selectCount && !availableUpgrades.isEmpty()) {
-            int index = random.nextInt(availableUpgrades.size());
-            options.add(availableUpgrades.remove(index));
-        }
-        
-        return options;
+        // 同一村庄等级使用稳定种子，重开 GUI 不会刷新选项。
+        Random random = new Random(31L * village.getId() + village.getLevel());
+        java.util.Collections.shuffle(availableUpgrades, random);
+        return new ArrayList<>(availableUpgrades.subList(
+                0, Math.min(count, availableUpgrades.size())));
     }
     
     /**
@@ -210,7 +206,7 @@ public class VillageUpgradeManager {
                 Number amountObj = (Number) costEntry.get("amount");
                 double amount = amountObj != null ? amountObj.doubleValue() : 0;
                 
-                if ("itemsadder".equals(type)) {
+                if ("itemsadder".equals(type) || "item".equals(type)) {
                     String item = (String) costEntry.get("item");
                     costs.add(new CostEntry(type, amount, item));
                 } else {
@@ -260,5 +256,18 @@ public class VillageUpgradeManager {
     public static int getUpgradeMaxLevel(String upgradeId) {
         String path = "village_upgrades.available_upgrades." + upgradeId + ".max_level";
         return cn.popcraft.villagerpro.VillagerPro.getInstance().getConfig().getInt(path, 1);
+    }
+
+    public static int getIntEffect(String upgradeId, String effectId, int defaultValue) {
+        String path = "village_upgrades.available_upgrades." + upgradeId
+                + ".effects." + effectId;
+        return VillagerPro.getInstance().getConfig().getInt(path, defaultValue);
+    }
+
+    public static double getDoubleEffect(String upgradeId, String effectId,
+                                         double defaultValue) {
+        String path = "village_upgrades.available_upgrades." + upgradeId
+                + ".effects." + effectId;
+        return VillagerPro.getInstance().getConfig().getDouble(path, defaultValue);
     }
 }

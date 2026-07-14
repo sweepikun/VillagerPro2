@@ -51,6 +51,12 @@ public class GUIListener implements Listener {
             }
             
             event.setCancelled(true);
+
+            // 只处理插件 GUI 顶部容器，避免玩家背包中的同名物品触发操作。
+            if (event.getClickedInventory() == null
+                    || !event.getClickedInventory().equals(event.getView().getTopInventory())) {
+                return;
+            }
             
             // 获取点击的物品和槽位
             ItemStack clickedItem = event.getCurrentItem();
@@ -74,6 +80,19 @@ public class GUIListener implements Listener {
                 handleRecruitGUI(player, clickedItem);
             } else if (inventoryTitle.equals(guiPrefix + "村庄升级")) {
                 handleVillageUpgradeGUI(player, clickedItem);
+            } else if (inventoryTitle.equals(guiPrefix + cn.popcraft.villagerpro.gui.VillageOperationsGUI.ORDER_TITLE)) {
+                cn.popcraft.villagerpro.gui.VillageOperationsGUI.handleOrderClick(player, clickedItem);
+            } else if (inventoryTitle.equals(guiPrefix + cn.popcraft.villagerpro.gui.VillageOperationsGUI.STATS_TITLE)) {
+                cn.popcraft.villagerpro.gui.VillageOperationsGUI.handleStatsClick(player, clickedItem);
+            } else if (inventoryTitle.equals(guiPrefix + cn.popcraft.villagerpro.gui.VillageOperationsGUI.RULES_TITLE)) {
+                cn.popcraft.villagerpro.gui.VillageOperationsGUI.handleRulesClick(
+                        player, clickedItem, event.getClick());
+            } else if (inventoryTitle.equals(guiPrefix + cn.popcraft.villagerpro.gui.VillagerDevelopmentGUI.SPECIALIZATION_TITLE)) {
+                cn.popcraft.villagerpro.gui.VillagerDevelopmentGUI.handleSpecializationClick(player, clickedItem);
+            } else if (inventoryTitle.equals(guiPrefix + cn.popcraft.villagerpro.gui.VillagerDevelopmentGUI.NEEDS_TITLE)) {
+                cn.popcraft.villagerpro.gui.VillagerDevelopmentGUI.handleNeedsClick(player, clickedItem);
+            } else if (inventoryTitle.equals(guiPrefix + cn.popcraft.villagerpro.gui.VillagerDevelopmentGUI.WORKSTATION_TITLE)) {
+                cn.popcraft.villagerpro.gui.VillagerDevelopmentGUI.handleWorkstationClick(player, clickedItem);
             } else if (inventoryTitle.contains("村庄装饰商店") || inventoryTitle.contains("装饰管理")) {
                 handleDecorationGUI(player, clickedItem, slot);
             } else if (inventoryTitle.contains("[商人]") || inventoryTitle.contains("[旅行者]") || inventoryTitle.contains("[节日使者]")) {
@@ -130,6 +149,37 @@ public class GUIListener implements Listener {
                 break;
             case VILLAGER_SPAWN_EGG:
                 GUIManager.openRecruitGUI(player);
+                break;
+            case WRITABLE_BOOK:
+                cn.popcraft.villagerpro.gui.VillageOperationsGUI.openOrderBoard(player);
+                break;
+            case CLOCK:
+                cn.popcraft.villagerpro.gui.VillageOperationsGUI.openProductionStats(player);
+                break;
+            case COMPARATOR:
+                cn.popcraft.villagerpro.gui.VillageOperationsGUI.openWarehouseRules(player);
+                break;
+            case LECTERN:
+                player.closeInventory();
+                cn.popcraft.villagerpro.managers.PolicyManager.showPolicies(player);
+                break;
+            case BELL:
+                player.closeInventory();
+                cn.popcraft.villagerpro.managers.CrisisManager.showStatus(player);
+                break;
+            case MINECART:
+                player.closeInventory();
+                cn.popcraft.villagerpro.managers.CaravanManager.showRoutes(player);
+                break;
+            case IRON_BLOCK:
+                Village village = VillageManager.getVillage(player.getUniqueId());
+                if (village != null) {
+                    cn.popcraft.villagerpro.managers.DefenseManager.getInstance()
+                            .summonGuard(player, village);
+                }
+                break;
+            case FLOWER_POT:
+                cn.popcraft.villagerpro.gui.DecorationGUIManager.showDecorationShop(player);
                 break;
             case GOLD_BLOCK:
                 // 联盟按钮
@@ -205,10 +255,23 @@ public class GUIListener implements Listener {
             case EXPERIENCE_BOTTLE:
                 GUIManager.openVillagerUpgradeGUI(player, villagerId);
                 break;
+            case NETHER_STAR:
+                cn.popcraft.villagerpro.gui.VillagerDevelopmentGUI
+                        .openSpecialization(player, villagerId);
+                break;
+            case APPLE:
+                cn.popcraft.villagerpro.gui.VillagerDevelopmentGUI.openNeeds(player, villagerId);
+                break;
+            case CRAFTING_TABLE:
+                cn.popcraft.villagerpro.gui.VillagerDevelopmentGUI
+                        .openWorkstation(player, villagerId);
+                break;
             case LEAD:
                 // 切换跟随模式
                 VillagerData villager = VillagerManager.getVillagerById(villagerId);
-                if (villager != null) {
+                Village ownedVillage = VillageManager.getVillage(player.getUniqueId());
+                if (villager != null && ownedVillage != null
+                        && villager.getVillageId() == ownedVillage.getId()) {
                     String currentMode = villager.getFollowMode();
                     String newMode;
                     switch (currentMode) {
@@ -262,8 +325,10 @@ public class GUIListener implements Listener {
             if (displayName.startsWith("§e")) {
                 // 获取村民信息
                 VillagerData villager = VillagerManager.getVillagerById(villagerId);
-                
-                if (villager != null) {
+                Village ownedVillage = VillageManager.getVillage(player.getUniqueId());
+
+                if (villager != null && ownedVillage != null
+                        && villager.getVillageId() == ownedVillage.getId()) {
                     String profession = villager.getProfession();
                     
                     // 从lore中获取技能ID
@@ -285,17 +350,30 @@ public class GUIListener implements Listener {
                     if (skillId != null) {
                         // 基于当前技能等级计算下一级成本
                         int currentSkillLevel = VillagerUpgradeManager.getVillagerSkillLevel(villager.getId(), skillId);
+                        int maxSkillLevel = VillagerUpgradeManager.getSkillMaxLevel(profession, skillId);
+                        if (currentSkillLevel >= maxSkillLevel) {
+                            player.sendMessage("§c这个技能已经满级！");
+                            return;
+                        }
+                        List<CostEntry> skillCosts = VillagerUpgradeManager.getUpgradeCosts(
+                                profession, skillId, currentSkillLevel + 1);
                         // 检查是否能支付升级费用
-                        if (VillagerUpgradeManager.canAffordUpgrade(player, profession, skillId, currentSkillLevel + 1)) {
+                        if (CostHandler.canAfford(player, skillCosts)) {
                             // 支付费用
-                            if (VillagerUpgradeManager.payUpgradeCost(player, profession, skillId, currentSkillLevel + 1)) {
+                            if (CostHandler.deduct(player, skillCosts)) {
                                 // 应用升级
-                                if (VillagerUpgradeManager.applyVillagerUpgrade(villager, skillId)) {
+                                if (VillagerUpgradeManager.applyVillagerUpgrade(
+                                        villager, skillId, currentSkillLevel)) {
+                                    villager.reloadSkills();
+                                    cn.popcraft.villagerpro.managers.VillagerAbilityManager
+                                            .applyVillageHealthBoost(ownedVillage);
                                     player.sendMessage("§a技能升级成功！");
                                     // 刷新升级GUI
                                     GUIManager.openVillagerUpgradeGUI(player, villagerId);
                                 } else {
-                                    player.sendMessage("§c技能升级失败！");
+                                    boolean refunded = CostHandler.refund(player, skillCosts);
+                                    player.sendMessage(refunded ? "§c技能升级失败，费用已退还！"
+                                            : "§c技能升级失败且费用未完整退还，请联系管理员！");
                                 }
                             } else {
                                 player.sendMessage("§c支付费用失败！");
@@ -345,13 +423,28 @@ public class GUIListener implements Listener {
                         GUIManager.openWarehouseGUI(player);
                     } else if (clickType == org.bukkit.event.inventory.ClickType.RIGHT) {
                         // 提取一组（64个）
-                        cn.popcraft.villagerpro.managers.WarehouseManager.extractItem(player, village.getId(), itemType, 64);
+                        cn.popcraft.villagerpro.models.WarehouseItem item =
+                                cn.popcraft.villagerpro.managers.WarehouseManager
+                                        .getWarehouseItem(village.getId(), itemType);
+                        if (item != null) {
+                            int extractable = cn.popcraft.villagerpro.managers.WarehouseManager
+                                    .getExtractableAmount(village.getId(), itemType);
+                            if (extractable <= 0) {
+                                player.sendMessage("§c该物品当前全部属于保留库存");
+                                return;
+                            }
+                            cn.popcraft.villagerpro.managers.WarehouseManager.extractItem(
+                                    player, village.getId(), itemType,
+                                    Math.min(64, extractable));
+                        }
                         // 刷新GUI
                         GUIManager.openWarehouseGUI(player);
                     }
                 }
             } else if (displayName.equals("§c返回")) {
                 GUIManager.openVillageGUI(player);
+            } else if (displayName.equals("§d仓库规则")) {
+                cn.popcraft.villagerpro.gui.VillageOperationsGUI.openWarehouseRules(player);
             } else if (displayName.equals("§c关闭")) {
                 player.closeInventory();
             }
@@ -377,6 +470,12 @@ public class GUIListener implements Listener {
                 break;
             case MAP:
                 recruitVillager(player, "cartographer");
+                break;
+            case BREAD:
+                recruitVillager(player, "baker");
+                break;
+            case LOOM:
+                recruitVillager(player, "weaver");
                 break;
             case ARROW:
                 GUIManager.openVillageGUI(player);
@@ -417,17 +516,29 @@ public class GUIListener implements Listener {
                 
                 Village village = VillageManager.getVillage(player.getUniqueId());
                 if (village != null) {
+                    if (VillageUpgradeManager.getAvailableUpgradePoints(village) <= 0) {
+                        player.sendMessage("§c当前没有可用的村庄技能点！");
+                        return;
+                    }
                     // 基于当前等级计算下一级成本
                     int currentLevel = VillageUpgradeManager.getVillageUpgradeLevel(village.getId(), upgradeId);
+                    if (currentLevel >= VillageUpgradeManager.getUpgradeMaxLevel(upgradeId)) {
+                        player.sendMessage("§c这个村庄技能已经满级！");
+                        return;
+                    }
                     List<CostEntry> costs = VillageUpgradeManager.getUpgradeCosts(upgradeId, currentLevel + 1);
                     if (CostHandler.canAfford(player, costs)) {
                         // 支付费用
                         if (CostHandler.deduct(player, costs)) {
                             // 应用升级
-                            if (VillageUpgradeManager.applyVillageUpgrade(village, upgradeId)) {
+                            if (VillageUpgradeManager.applyVillageUpgrade(
+                                    village, upgradeId, currentLevel)) {
+                                village.reloadUpgrades();
                                 player.sendMessage("§a村庄升级成功！");
                             } else {
-                                player.sendMessage("§c村庄升级失败！");
+                                boolean refunded = CostHandler.refund(player, costs);
+                                player.sendMessage(refunded ? "§c村庄升级失败，费用已退还！"
+                                        : "§c村庄升级失败且费用未完整退还，请联系管理员！");
                             }
                         } else {
                             player.sendMessage("§c支付费用失败！");
@@ -490,13 +601,7 @@ public class GUIListener implements Listener {
         // 使用消耗物品确认界面
         CostDisplayGUI.openCostConfirmationGUI(player, "招募村民", finalRecruitCosts,
                 () -> {
-                    // 确认回调：执行招募
-                    if (!CostHandler.deduct(player, finalRecruitCosts)) {
-                        player.sendMessage("§c招募村民时发生错误！");
-                        return;
-                    }
-
-                    // 执行招募逻辑
+                    // 底层招募方法负责唯一一次扣费，并在失败时回滚。
                     executeVillagerRecruitment(player, finalVillage, finalTargetVillager, finalProfession);
                 },
                 () -> {
@@ -613,12 +718,10 @@ public class GUIListener implements Listener {
         // 处理确认按钮
         if (displayName.contains("确认执行")) {
             CostDisplayGUI.handleConfirmClick(player);
-            player.sendMessage("§a✅ 操作执行成功！");
         }
         // 处理取消按钮
         else if (displayName.contains("取消操作")) {
             CostDisplayGUI.handleCancelClick(player);
-            player.sendMessage("§7ℹ️ 操作已取消");
         }
     }
     
@@ -626,6 +729,29 @@ public class GUIListener implements Listener {
      * 执行村民招募逻辑（从确认界面调用）
      */
     private void executeVillagerRecruitment(Player player, cn.popcraft.villagerpro.models.Village village, Villager targetVillager, String profession) {
+        Village currentVillage = VillageManager.getVillage(player.getUniqueId());
+        if (currentVillage == null || currentVillage.getId() != village.getId()
+                || !targetVillager.isValid()
+                || !player.getWorld().equals(targetVillager.getWorld())
+                || player.getLocation().distanceSquared(targetVillager.getLocation()) > 25
+                || VillagerManager.getVillager(targetVillager.getUniqueId()) != null) {
+            player.sendMessage("§c招募目标已失效，请重新选择村民！");
+            return;
+        }
+        if (cn.popcraft.villagerpro.managers.EcoChainManager.getInstance().isNewProfession(profession)
+                && !cn.popcraft.villagerpro.managers.EcoChainManager.getInstance()
+                        .hasPrerequisites(currentVillage, profession)) {
+            player.sendMessage("§c尚未满足该职业的前置条件！");
+            return;
+        }
+
+        VillagerData villagerData = VillagerManager.recruitVillager(
+                player, village, targetVillager.getUniqueId(), profession);
+        if (villagerData == null) {
+            player.sendMessage("§c招募村民失败！");
+            return;
+        }
+
         // 设置村民职业
         Villager.Profession villagerProfession;
         switch (profession) {
@@ -647,6 +773,12 @@ public class GUIListener implements Listener {
             case "cartographer":
                 villagerProfession = Villager.Profession.CARTOGRAPHER;
                 break;
+            case "baker":
+                villagerProfession = Villager.Profession.BUTCHER;
+                break;
+            case "weaver":
+                villagerProfession = Villager.Profession.SHEPHERD;
+                break;
             default:
                 villagerProfession = Villager.Profession.NONE;
         }
@@ -665,19 +797,14 @@ public class GUIListener implements Listener {
         String professionName = VillagerManager.getProfessionDisplayName(profession);
         targetVillager.setCustomName("§a" + professionName + " §7(ID: " + targetVillager.getEntityId() + ")");
         targetVillager.setCustomNameVisible(true);
+
+        cn.popcraft.villagerpro.managers.VillagerAbilityManager.applyVillageHealthBoost(village);
         
-        // 保存村民数据到数据库
-        VillagerData villagerData = VillagerManager.recruitVillager(player, village, targetVillager.getUniqueId(), profession);
-        if (villagerData != null) {
-            player.sendMessage("§a成功招募了一名" + professionName + "！");
-            
-            // 延迟打开村庄主界面
-            Bukkit.getScheduler().runTaskLater(VillagerPro.getInstance(), () -> {
-                GUIManager.openVillageGUI(player);
-            }, 1L);
-        } else {
-            player.sendMessage("§c招募村民失败！");
-        }
+        player.sendMessage("§a成功招募了一名" + professionName + "！");
+
+        Bukkit.getScheduler().runTaskLater(VillagerPro.getInstance(), () -> {
+            GUIManager.openVillageGUI(player);
+        }, 1L);
     }
 
 }

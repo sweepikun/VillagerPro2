@@ -79,7 +79,11 @@ public class VillageManager {
                         resultSet.getString("name"),
                         resultSet.getInt("level"),
                         resultSet.getInt("experience"),
-                        resultSet.getInt("prosperity")
+                        resultSet.getInt("prosperity"),
+                        resultSet.getDouble("center_x"),
+                        resultSet.getDouble("center_y"),
+                        resultSet.getDouble("center_z"),
+                        resultSet.getString("world")
                 );
                 // 缓存村庄数据
                 CacheManager.cacheVillage(ownerUUID, village);
@@ -147,21 +151,33 @@ public class VillageManager {
      * @return 创建的村庄对象
      */
     public static Village createVillage(UUID ownerUUID, String name, Location location) {
+        boolean hasLocation = location != null && location.getWorld() != null;
+        String sql = hasLocation
+                ? "INSERT INTO villages (owner_uuid, name, center_x, center_y, center_z, world) VALUES (?, ?, ?, ?, ?, ?)"
+                : "INSERT INTO villages (owner_uuid, name) VALUES (?, ?)";
         try (Connection connection = DatabaseManager.getConnection();
-             PreparedStatement statement = connection.prepareStatement(
-                     "INSERT INTO villages (owner_uuid, name) VALUES (?, ?)",
+             PreparedStatement statement = connection.prepareStatement(sql,
                      PreparedStatement.RETURN_GENERATED_KEYS)) {
-            
+
             statement.setString(1, ownerUUID.toString());
             statement.setString(2, name);
-            
+            if (hasLocation) {
+                statement.setDouble(3, location.getX());
+                statement.setDouble(4, location.getY());
+                statement.setDouble(5, location.getZ());
+                statement.setString(6, location.getWorld().getName());
+            }
+
             int affectedRows = statement.executeUpdate();
-            
+
             if (affectedRows > 0) {
                 ResultSet generatedKeys = statement.getGeneratedKeys();
                 if (generatedKeys.next()) {
                     int id = generatedKeys.getInt(1);
-                    Village village = new Village(id, ownerUUID, name, 1, 0, 0);
+                    Village village = hasLocation
+                            ? new Village(id, ownerUUID, name, 1, 0, 0,
+                                          location.getX(), location.getY(), location.getZ(), location.getWorld().getName())
+                            : new Village(id, ownerUUID, name, 1, 0, 0);
                     // 缓存新创建的村庄
                     CacheManager.cacheVillage(ownerUUID, village);
                     return village;
@@ -170,7 +186,7 @@ public class VillageManager {
         } catch (SQLException e) {
             VillagerPro.getInstance().getLogger().warning("数据库操作失败: " + e.getMessage());
         }
-        
+
         return null;
     }
     
@@ -182,12 +198,16 @@ public class VillageManager {
     public static boolean upgradeVillage(Village village) {
         try (Connection connection = DatabaseManager.getConnection();
              PreparedStatement statement = connection.prepareStatement(
-                     "UPDATE villages SET level = ?, experience = ?, prosperity = ? WHERE id = ?")) {
+                     "UPDATE villages SET level = ?, experience = ?, prosperity = ?, center_x = ?, center_y = ?, center_z = ?, world = ? WHERE id = ?")) {
             
             statement.setInt(1, village.getLevel());
             statement.setInt(2, village.getExperience());
             statement.setInt(3, village.getProsperity());
-            statement.setInt(4, village.getId());
+            statement.setDouble(4, village.getCenterX());
+            statement.setDouble(5, village.getCenterY());
+            statement.setDouble(6, village.getCenterZ());
+            statement.setString(7, village.getWorld());
+            statement.setInt(8, village.getId());
             
             boolean success = statement.executeUpdate() > 0;
             if (success) {
@@ -209,13 +229,17 @@ public class VillageManager {
     public static boolean updateVillage(Village village) {
         try (Connection connection = DatabaseManager.getConnection();
              PreparedStatement statement = connection.prepareStatement(
-                     "UPDATE villages SET name = ?, level = ?, experience = ?, prosperity = ? WHERE id = ?")) {
+                     "UPDATE villages SET name = ?, level = ?, experience = ?, prosperity = ?, center_x = ?, center_y = ?, center_z = ?, world = ? WHERE id = ?")) {
             
             statement.setString(1, village.getName());
             statement.setInt(2, village.getLevel());
             statement.setInt(3, village.getExperience());
             statement.setInt(4, village.getProsperity());
-            statement.setInt(5, village.getId());
+            statement.setDouble(5, village.getCenterX());
+            statement.setDouble(6, village.getCenterY());
+            statement.setDouble(7, village.getCenterZ());
+            statement.setString(8, village.getWorld());
+            statement.setInt(9, village.getId());
             
             boolean success = statement.executeUpdate() > 0;
             if (success) {

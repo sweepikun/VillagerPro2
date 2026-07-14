@@ -2,6 +2,7 @@ package cn.popcraft.villagerpro.managers;
 
 import cn.popcraft.villagerpro.VillagerPro;
 import cn.popcraft.villagerpro.database.DatabaseManager;
+import cn.popcraft.villagerpro.database.OperationTransactions;
 import cn.popcraft.villagerpro.economy.CostEntry;
 import cn.popcraft.villagerpro.economy.CostHandler;
 import cn.popcraft.villagerpro.models.VillagerData;
@@ -75,24 +76,17 @@ public class VillagerUpgradeManager {
      * @return 是否应用成功
      */
     public static boolean applyVillagerUpgrade(VillagerData villager, String skillId) {
-        int currentLevel = getVillagerSkillLevel(villager.getId(), skillId);
-        int maxLevel = cn.popcraft.villagerpro.VillagerPro.getInstance().getConfig()
-                .getInt("villager_upgrades." + villager.getProfession() + "." + skillId + ".max_level", 1);
-        
-        // 检查是否已达最高等级
-        if (currentLevel >= maxLevel) {
-            return false;
-        }
-        
-        try (Connection connection = DatabaseManager.getConnection();
-             PreparedStatement statement = connection.prepareStatement(
-                     "INSERT OR REPLACE INTO villager_upgrades (villager_id, skill_id, level) VALUES (?, ?, ?)")) {
-            
-            statement.setInt(1, villager.getId());
-            statement.setString(2, skillId);
-            statement.setInt(3, currentLevel + 1);
-            
-            return statement.executeUpdate() > 0;
+        return applyVillagerUpgrade(villager, skillId,
+                getVillagerSkillLevel(villager.getId(), skillId));
+    }
+
+    public static boolean applyVillagerUpgrade(VillagerData villager, String skillId,
+                                               int expectedLevel) {
+        int maxLevel = getSkillMaxLevel(villager.getProfession(), skillId);
+        try (Connection connection = DatabaseManager.getConnection()) {
+            return OperationTransactions.upgradeVillagerSkill(connection,
+                    DatabaseManager.getDialect(), villager.getId(), skillId,
+                    expectedLevel, maxLevel);
         } catch (SQLException e) {
             VillagerPro.getInstance().getLogger().warning("数据库操作失败：" + e.getMessage());
             return false;
@@ -182,7 +176,7 @@ public class VillagerUpgradeManager {
                     // 应用成本乘数
                     double amount = baseAmount * Math.pow(costMultiplier, nextLevel - 1);
                     
-                    if ("itemsadder".equals(type)) {
+                    if ("itemsadder".equals(type) || "item".equals(type)) {
                         String item = (String) costEntry.get("item");
                         costs.add(new CostEntry(type, amount, item));
                     } else {
@@ -237,5 +231,36 @@ public class VillagerUpgradeManager {
     public static int getSkillMaxLevel(String profession, String skillId) {
         String path = "villager_upgrades." + profession + "." + skillId + ".max_level";
         return cn.popcraft.villagerpro.VillagerPro.getInstance().getConfig().getInt(path, 1);
+    }
+
+    public static int getIntEffect(String profession, String skillId, String effectId,
+                                   int defaultValue) {
+        String path = "villager_upgrades." + profession + "." + skillId
+                + ".effects." + effectId;
+        return VillagerPro.getInstance().getConfig().getInt(path, defaultValue);
+    }
+
+    public static double getDoubleEffect(String profession, String skillId, String effectId,
+                                         double defaultValue) {
+        String path = "villager_upgrades." + profession + "." + skillId
+                + ".effects." + effectId;
+        return VillagerPro.getInstance().getConfig().getDouble(path, defaultValue);
+    }
+
+    public static int getProductionSkillBonus(VillagerData villager) {
+        Map<String, Integer> skills = villager.getSkills();
+        String profession = villager.getProfession();
+        return switch (profession) {
+            case "farmer" -> skills.getOrDefault("efficient_harvest", 0)
+                    * getIntEffect(profession, "efficient_harvest", "amount_per_level", 1);
+            case "shepherd" -> skills.getOrDefault("efficient_shearing", 0)
+                    * getIntEffect(profession, "efficient_shearing", "amount_per_level", 1);
+            case "priest" -> skills.getOrDefault("potion_master", 0)
+                    * getIntEffect(profession, "potion_master", "amount_per_level", 1);
+            case "cartographer" -> skills.getOrDefault("map_expert", 0)
+                    * getIntEffect(profession, "map_expert", "amount_per_level", 1);
+            case "miner" -> skills.getOrDefault("quick_mining", 0);
+            default -> 0;
+        };
     }
 }

@@ -5,10 +5,15 @@ import cn.popcraft.villagerpro.database.DatabaseManager;
 import cn.popcraft.villagerpro.economy.EconomyManager;
 import cn.popcraft.villagerpro.events.EventManager;
 import cn.popcraft.villagerpro.managers.DefenseManager;
+import cn.popcraft.villagerpro.managers.BuildingManager;
+import cn.popcraft.villagerpro.managers.PolicyManager;
+import cn.popcraft.villagerpro.managers.CrisisManager;
+import cn.popcraft.villagerpro.managers.CaravanManager;
 import cn.popcraft.villagerpro.managers.DecorationManager;
 import cn.popcraft.villagerpro.managers.EcoChainManager;
 import cn.popcraft.villagerpro.managers.LegacyManager;
 import cn.popcraft.villagerpro.managers.PersonalityManager;
+import cn.popcraft.villagerpro.managers.NeedsManager;
 import cn.popcraft.villagerpro.managers.VisitorManager;
 import cn.popcraft.villagerpro.managers.SimpleAllianceManager;
 import cn.popcraft.villagerpro.managers.SimpleAllianceGUIManager;
@@ -23,6 +28,7 @@ public class VillagerPro extends JavaPlugin {
     private static VillagerPro instance;
     private Economy economy;
     private PlayerPoints playerPointsAPI;
+    private boolean databaseInitialized;
     
     @Override
     public void onEnable() {
@@ -35,7 +41,17 @@ public class VillagerPro extends JavaPlugin {
         Messages.initialize();
         
         // 初始化数据库管理器（现在依赖于 Paper 自动加载 JDBC 驱动）
-        DatabaseManager.initialize();
+        if (!DatabaseManager.initialize()) {
+            getLogger().severe("数据库不可用，VillagerPro 将停止启用。请检查 config.yml 中的 database 配置。");
+            getServer().getPluginManager().disablePlugin(this);
+            return;
+        }
+        databaseInitialized = true;
+
+        PolicyManager.initialize();
+        BuildingManager.initialize();
+        CrisisManager.initialize();
+        CaravanManager.initialize();
         
         // 初始化经济系统
         EconomyManager.initialize();
@@ -48,6 +64,8 @@ public class VillagerPro extends JavaPlugin {
         
         // 初始化工作调度器
         WorkScheduler.initialize();
+
+        NeedsManager.initialize();
         
         // 初始化访客系统
         if (getConfig().getBoolean("features.visitors", true)) {
@@ -93,11 +111,21 @@ public class VillagerPro extends JavaPlugin {
     
     @Override
     public void onDisable() {
+        if (!databaseInitialized) {
+            DatabaseManager.shutdown();
+            return;
+        }
+
         // 停止所有跟随任务
         cn.popcraft.villagerpro.managers.FollowManager.shutdown();
         
         // 关闭工作调度器
         WorkScheduler.shutdown();
+        NeedsManager.shutdown();
+        BuildingManager.shutdown();
+        PolicyManager.shutdown();
+        CrisisManager.shutdown();
+        CaravanManager.shutdown();
         
         // 关闭访客系统
         if (getConfig().getBoolean("features.visitors", true)) {

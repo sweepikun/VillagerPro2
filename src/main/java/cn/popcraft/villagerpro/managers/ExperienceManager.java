@@ -1,13 +1,19 @@
 package cn.popcraft.villagerpro.managers;
 
 import cn.popcraft.villagerpro.VillagerPro;
+import cn.popcraft.villagerpro.economy.CostEntry;
+import cn.popcraft.villagerpro.economy.CostHandler;
 import cn.popcraft.villagerpro.models.Village;
 import cn.popcraft.villagerpro.models.VillagerData;
+import cn.popcraft.villagerpro.util.GameplayMath;
 import cn.popcraft.villagerpro.util.Messages;
 import org.bukkit.Bukkit;
 import org.bukkit.entity.Player;
 
 import java.util.UUID;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Map;
 
 public class ExperienceManager {
     
@@ -17,11 +23,20 @@ public class ExperienceManager {
      * @param exp 经验值
      */
     public static void addVillagerExperience(VillagerData villager, int exp) {
-        villager.addExperience(exp);
-        VillagerManager.updateVillager(villager);
-        
-        // 检查是否升级
-        checkVillagerLevelUp(villager);
+        int previousLevel = villager.getLevel();
+        int previousExperience = villager.getExperience();
+        int baseExp = VillagerPro.getInstance().getConfig()
+                .getInt("villager.base_exp_per_level", 100);
+        GameplayMath.LevelProgress progress = GameplayMath.applyExperience(
+                previousLevel, villager.getExperience(), exp, baseExp, Integer.MAX_VALUE);
+        villager.setLevel(progress.level());
+        villager.setExperience(progress.experience());
+        if (!VillagerManager.updateVillager(villager)) {
+            villager.setLevel(previousLevel);
+            villager.setExperience(previousExperience);
+            return;
+        }
+        if (progress.level() > previousLevel) sendVillagerLevelUpMessage(villager);
     }
     
     /**
@@ -30,34 +45,15 @@ public class ExperienceManager {
      * @param exp 经验值
      */
     public static void addVillageExperience(Village village, int exp) {
+        int previousExperience = village.getExperience();
         village.addExperience(exp);
-        VillageManager.updateVillage(village);
+        if (!VillageManager.updateVillage(village)) {
+            village.setExperience(previousExperience);
+            return;
+        }
         
         // 检查是否升级
         checkVillageLevelUp(village);
-    }
-    
-    /**
-     * 检查村民是否升级
-     * @param villager 村民
-     */
-    private static void checkVillagerLevelUp(VillagerData villager) {
-        // 根据配置来确定升级所需经验
-        int currentLevel = villager.getLevel();
-        
-        // 获取基础经验需求（默认为100）
-        int baseExp = VillagerPro.getInstance().getConfig().getInt("villager.base_exp_per_level", 100);
-        // 计算当前等级升级所需经验（线性增长）
-        int expNeeded = currentLevel * baseExp;
-        
-        if (villager.getExperience() >= expNeeded) {
-            villager.setLevel(currentLevel + 1);
-            villager.setExperience(villager.getExperience() - expNeeded);
-            VillagerManager.updateVillager(villager);
-            
-            // 发送升级消息给村庄拥有者
-            sendVillagerLevelUpMessage(villager);
-        }
     }
     
     /**
@@ -65,27 +61,62 @@ public class ExperienceManager {
      * @param village 村庄
      */
     private static void checkVillageLevelUp(Village village) {
-        int currentLevel = village.getLevel();
         int maxLevel = VillagerPro.getInstance().getConfig().getInt("village.max_level", 5);
-        
-        if (currentLevel >= maxLevel) {
-            return; // 已达到最高等级
-        }
-        
-        // 根据配置来确定升级所需经验
-        // 获取基础经验需求（默认为200）
         int baseExp = VillagerPro.getInstance().getConfig().getInt("village.base_exp_per_level", 200);
-        // 计算当前等级升级所需经验（线性增长）
-        int expNeeded = currentLevel * baseExp;
-        
-        if (village.getExperience() >= expNeeded) {
+        while (village.getLevel() < maxLevel) {
+            int currentLevel = village.getLevel();
+            long expNeeded = (long) currentLevel * Math.max(1, baseExp);
+            if (village.getExperience() < expNeeded) return;
+            Player owner = Bukkit.getPlayer(village.getOwnerUUID());
+            if (owner == null) return;
+            List<CostEntry> costs = getVillageLevelUpCosts(currentLevel);
+            if (!CostHandler.deduct(owner, costs)) return;
+
+            int previousExperience = village.getExperience();
             village.setLevel(currentLevel + 1);
-            village.setExperience(village.getExperience() - expNeeded);
-            VillageManager.updateVillage(village);
-            
-            // 发送升级消息给村庄拥有者
+            village.setExperience((int) (village.getExperience() - expNeeded));
+            if (!VillageManager.updateVillage(village)) {
+                village.setLevel(currentLevel);
+                village.setExperience(previousExperience);
+                if (!CostHandler.refund(owner, costs)) {
+                    owner.sendMessage("§c村庄升级保存失败且费用未完整退还，请联系管理员");
+                }
+                return;
+            }
+
             sendVillageLevelUpMessage(village);
+            if (VillagerPro.getInstance().getConfig().getBoolean("features.personality", true)) {
+                PersonalityManager.getInstance().rewardVillageLevelUp(village);
+            }
         }
+    }
+
+    private static List<CostEntry> getVillageLevelUpCosts(int currentLevel) {
+        List<CostEntry> costs = new ArrayList<>();
+        List<Map<?, ?>> levels = VillagerPro.getInstance().getConfig().getMapList("village.upgrade_costs");
+        int index = currentLevel - 1;
+        if (index < 0 || index >= levels.size()) {
+            return costs;
+        }
+
+        Object entriesObject = levels.get(index).get("costs");
+        if (!(entriesObject instanceof List<?>)) {
+            return costs;
+        }
+        for (Object entryObject : (List<?>) entriesObject) {
+            if (!(entryObject instanceof Map<?, ?>)) continue;
+            Map<?, ?> entry = (Map<?, ?>) entryObject;
+            String type = String.valueOf(entry.get("type"));
+            Object amountObject = entry.get("amount");
+            if (!(amountObject instanceof Number)) continue;
+            double amount = ((Number) amountObject).doubleValue();
+            if ("itemsadder".equalsIgnoreCase(type) || "item".equalsIgnoreCase(type)) {
+                costs.add(new CostEntry(type, amount, String.valueOf(entry.get("item"))));
+            } else {
+                costs.add(new CostEntry(type, amount));
+            }
+        }
+        return costs;
     }
     
     /**

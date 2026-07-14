@@ -181,6 +181,19 @@ public class CostDisplayGUI {
                     item.setItemMeta(woolMeta);
                 }
                 break;
+
+            case "item":
+                Material material = Material.getMaterial(cost.getItem().toUpperCase());
+                item = new ItemStack(material == null ? Material.BARRIER : material,
+                        Math.min(64, Math.max(1, (int) cost.getAmount())));
+                ItemMeta itemMeta = item.getItemMeta();
+                itemMeta.setDisplayName((material == null ? ChatColor.RED : ChatColor.YELLOW)
+                        + "§l" + cost.getItem());
+                itemMeta.setLore(java.util.Arrays.asList(
+                        ChatColor.GRAY + "消耗数量: " + ChatColor.WHITE + (int) cost.getAmount(),
+                        material == null ? ChatColor.RED + "无效的原版物品类型" : ChatColor.GRAY + "将从背包中扣除"));
+                item.setItemMeta(itemMeta);
+                break;
                 
             default:
                 // 其他类型，显示石头
@@ -207,25 +220,21 @@ public class CostDisplayGUI {
             if (itemsAdderPlugin == null) {
                 return null; // ItemsAdder未安装
             }
-            
-            // 尝试获取ItemsAdder API
-            Class<?> itemsAdderAPI = Class.forName("io.th0rgal.itemsadder.api.ItemsAdderAPI");
-            java.lang.reflect.Method getInstanceMethod = itemsAdderAPI.getMethod("getInstance");
-            Object apiInstance = getInstanceMethod.invoke(null);
-            
-            java.lang.reflect.Method getItemStackMethod = apiInstance.getClass().getMethod("getItemStack", String.class);
-            Object itemStackObj = getItemStackMethod.invoke(apiInstance, itemNamespace);
-            
-            if (itemStackObj instanceof ItemStack) {
-                ItemStack itemStack = (ItemStack) itemStackObj;
-                itemStack.setAmount(amount);
-                return itemStack;
+
+            // 使用与 VisitorGUIManager 一致的 ItemsAdder API
+            Class<?> itemsAdderAPI = Class.forName("dev.lone.itemsadder.api.ItemsAdder");
+            Object customItem = itemsAdderAPI.getMethod("getCustomItem", String.class).invoke(null, itemNamespace);
+            if (customItem == null) {
+                return null;
             }
-            
+            ItemStack itemStack = (ItemStack) customItem.getClass().getMethod("getItemStack").invoke(customItem);
+            itemStack.setAmount(amount);
+            return itemStack;
+
         } catch (Exception e) {
             VillagerPro.getInstance().getLogger().warning("获取ItemsAdder物品失败: " + e.getMessage());
         }
-        
+
         return null;
     }
     

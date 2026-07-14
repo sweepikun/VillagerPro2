@@ -259,9 +259,74 @@ public class SimpleAllianceManager {
         return villageIds;
     }
     
+    /**
+     * 获取联盟成员村庄
+     */
+    public List<Village> getAllianceMembers(int allianceId) {
+        List<Village> members = new ArrayList<>();
+        try (Connection conn = DatabaseManager.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                 "SELECT village_id FROM alliance_members WHERE alliance_id = ?")) {
+            stmt.setInt(1, allianceId);
+            ResultSet rs = stmt.executeQuery();
+            while (rs.next()) {
+                Village village = VillageManager.getVillageById(rs.getInt("village_id"));
+                if (village != null) {
+                    members.add(village);
+                }
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().warning("获取联盟成员失败: " + e.getMessage());
+        }
+        return members;
+    }
+
+    /**
+     * 获取联盟盟主村庄ID
+     */
+    public int getAllianceOwnerVillageId(int allianceId) {
+        try (Connection conn = DatabaseManager.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                 "SELECT owner_village_id FROM alliances WHERE id = ?")) {
+            stmt.setInt(1, allianceId);
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next()) {
+                return rs.getInt("owner_village_id");
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().warning("获取联盟盟主失败: " + e.getMessage());
+        }
+        return -1;
+    }
+
+    /**
+     * 获取联盟信息
+     */
+    public SimpleAlliance getAllianceById(int allianceId) {
+        try (Connection conn = DatabaseManager.getConnection();
+             PreparedStatement stmt = conn.prepareStatement(
+                 "SELECT a.id, a.name, a.owner_village_id, a.created_at, COUNT(am.village_id) as member_count " +
+                 "FROM alliances a LEFT JOIN alliance_members am ON a.id = am.alliance_id " +
+                 "WHERE a.id = ? GROUP BY a.id")) {
+            stmt.setInt(1, allianceId);
+            ResultSet rs = stmt.executeQuery();
+            if (rs.next()) {
+                return new SimpleAlliance(
+                    rs.getInt("id"),
+                    rs.getString("name"),
+                    rs.getInt("member_count"),
+                    rs.getTimestamp("created_at") != null ? rs.getTimestamp("created_at").toString() : ""
+                );
+            }
+        } catch (SQLException e) {
+            plugin.getLogger().warning("查询联盟信息失败: " + e.getMessage());
+        }
+        return null;
+    }
+
     // ============== 数据库辅助方法 ==============
     
-    private int getAllianceIdByVillageId(int villageId) {
+    public int getAllianceIdByVillageId(int villageId) {
         try (Connection conn = DatabaseManager.getConnection();
              PreparedStatement stmt = conn.prepareStatement(
                  "SELECT alliance_id FROM alliance_members WHERE village_id = ?")) {
@@ -312,10 +377,10 @@ public class SimpleAllianceManager {
         return 0;
     }
     
-    private boolean addMemberToAlliance(int allianceId, int villageId) {
+    public boolean addMemberToAlliance(int allianceId, int villageId) {
         try (Connection conn = DatabaseManager.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                 "INSERT OR IGNORE INTO alliance_members (alliance_id, village_id) VALUES (?, ?)")) {
+             PreparedStatement stmt = conn.prepareStatement(DatabaseManager.insertIgnore(
+                 "INSERT INTO alliance_members (alliance_id, village_id) VALUES (?, ?)"))) {
             
             stmt.setInt(1, allianceId);
             stmt.setInt(2, villageId);

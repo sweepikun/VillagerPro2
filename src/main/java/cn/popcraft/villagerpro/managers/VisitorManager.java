@@ -191,6 +191,11 @@ public class VisitorManager {
                 .findFirst()
                 .orElse(null);
     }
+
+    public VisitorData getVisitor(int visitorId) {
+        VisitorData visitor = activeVisitors.get(visitorId);
+        return visitor != null && visitor.isActive() ? visitor : null;
+    }
     
     /**
      * 获取访客的交易列表
@@ -202,14 +207,20 @@ public class VisitorManager {
     /**
      * 为访客创建交易
      */
-    public VisitorDeal createDeal(VisitorData visitor, String dealType, String itemType, 
+    public VisitorDeal createDeal(VisitorData visitor, String dealType, String itemType,
                                  int amount, double price, String playerName) {
+        if (visitor == null) {
+            return null; // 没有访客上下文时不记录交易
+        }
         int stayMinutes = VillagerPro.getInstance().getConfig().getInt("visitors.stay_duration_minutes", 10);
         Timestamp expiresAt = new Timestamp(System.currentTimeMillis() + (stayMinutes * 60 * 1000));
         
         VisitorDeal deal = new VisitorDeal(0, visitor.getId(), dealType, itemType, amount, 
                                          price, "", 0, "", playerName, new Timestamp(System.currentTimeMillis()), 
                                          expiresAt);
+        if ("purchase".equalsIgnoreCase(dealType)) {
+            deal.complete();
+        }
         
         // 保存到数据库
         int dealId = saveDealToDatabase(deal);
@@ -228,6 +239,11 @@ public class VisitorManager {
      */
     public void interactWithVisitor(Player player, VisitorData visitor) {
         if (visitor == null || !visitor.isActive()) return;
+        Village village = VillageManager.getVillage(player.getUniqueId());
+        if (village == null || village.getId() != visitor.getVillageId()) {
+            player.sendMessage("§c这位访客正在拜访其他村庄");
+            return;
+        }
         
         // 根据访客类型显示对应的GUI
         switch (visitor.getType().toLowerCase()) {
@@ -298,24 +314,19 @@ public class VisitorManager {
      * 获取村庄中心位置
      */
     private Location getVillageCenter(Village village) {
-        // 尝试从村庄的拥有者位置获取村庄中心
-        // 如果村庄拥有者在世界中有位置，使用该位置
-        // 否则使用主世界的出生点
-        
-        // 获取第一个在线的玩家（如果村庄拥有者不在线）
+        Location center = village.getLocation();
+        if (center != null && center.getWorld() != null) {
+            return center;
+        }
+
+        // fallback：如果村庄中心未设置，使用拥有者在线位置
         for (org.bukkit.entity.Player player : Bukkit.getOnlinePlayers()) {
             if (player.getUniqueId().equals(village.getOwnerUUID())) {
-                Location playerLoc = player.getLocation();
-                return new Location(playerLoc.getWorld(), 
-                                  playerLoc.getX(), 
-                                  playerLoc.getY(), 
-                                  playerLoc.getZ());
+                return player.getLocation().clone();
             }
         }
-        
-        // 如果所有者不在线或未找到，使用主世界出生点
-        World world = Bukkit.getWorlds().get(0);
-        return world.getSpawnLocation();
+
+        return Bukkit.getWorlds().get(0).getSpawnLocation();
     }
     
     /**
@@ -580,11 +591,11 @@ public class VisitorManager {
      */
     public List<VisitorDeal> getDealsByVillage(int villageId) {
         List<VisitorDeal> villageDeals = new ArrayList<>();
-        for (List<VisitorDeal> deals : visitorDeals.values()) {
-            for (VisitorDeal deal : deals) {
-                // 这里需要根据实际的关联关系来筛选
-                // 暂时返回所有交易
-                villageDeals.add(deal);
+        for (VisitorData visitor : activeVisitors.values()) {
+            if (visitor.getVillageId() != villageId) continue;
+            List<VisitorDeal> deals = visitorDeals.get(visitor.getId());
+            if (deals != null) {
+                villageDeals.addAll(deals);
             }
         }
         return villageDeals;

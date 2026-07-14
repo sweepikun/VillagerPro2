@@ -8,37 +8,93 @@ import java.io.File;
 import java.sql.Connection;
 import java.sql.SQLException;
 import java.sql.Statement;
+import org.bukkit.configuration.file.FileConfiguration;
 
 public class DatabaseManager {
     private static HikariDataSource dataSource;
+    private static DatabaseDialect dialect = DatabaseDialect.SQLITE;
     
     /**
      * 初始化数据库连接
      */
-    public static void initialize() {
+    public static boolean initialize() {
         try {
-            HikariConfig config = new HikariConfig();
-            config.setJdbcUrl("jdbc:sqlite:" + new File("plugins/VillagerPro/database.db").getAbsolutePath());
-            config.setMaximumPoolSize(10);
-            config.setMinimumIdle(2);
-            config.setConnectionTimeout(30000);
-            config.setIdleTimeout(600000);
-            config.setMaxLifetime(1800000);
-            
-            dataSource = new HikariDataSource(config);
-            
-            createTables();
+            VillagerPro plugin = VillagerPro.getInstance();
+            FileConfiguration settings = plugin.getConfig();
+            dialect = DatabaseDialect.fromConfig(settings.getString("database.type", "sqlite"));
+
+            dataSource = createConfiguredDataSource(dialect, "active");
+            createTables(dataSource, dialect);
+            plugin.getLogger().info("数据库连接已启用: " + dialect.name());
+            return true;
         } catch (Exception e) {
             VillagerPro.getInstance().getLogger().severe("数据库初始化失败: " + e.getMessage());
+            shutdown();
+            return false;
         }
+    }
+
+    static HikariDataSource createConfiguredDataSource(DatabaseDialect selectedDialect, String poolSuffix) {
+        VillagerPro plugin = VillagerPro.getInstance();
+        HikariConfig hikari = new HikariConfig();
+        configureDataSource(hikari, plugin.getConfig(), plugin, selectedDialect, poolSuffix);
+        hikari.setIdleTimeout(600000);
+        hikari.setMaxLifetime(1800000);
+        return new HikariDataSource(hikari);
+    }
+
+    private static void configureDataSource(HikariConfig hikari, FileConfiguration settings,
+                                            VillagerPro plugin, DatabaseDialect selectedDialect,
+                                            String poolSuffix) {
+        long connectionTimeout = Math.max(250L,
+                settings.getLong("database.pool.connection_timeout_ms", 30000L));
+        hikari.setConnectionTimeout(connectionTimeout);
+        hikari.setPoolName("VillagerPro-" + selectedDialect.name() + "-" + poolSuffix);
+
+        if (selectedDialect == DatabaseDialect.SQLITE) {
+            String configuredPath = settings.getString("database.sqlite.file", "plugins/VillagerPro/database.db");
+            File databaseFile = new File(configuredPath == null ? "plugins/VillagerPro/database.db" : configuredPath);
+            File parent = databaseFile.getAbsoluteFile().getParentFile();
+            if (parent != null && !parent.exists() && !parent.mkdirs()) {
+                throw new IllegalStateException("无法创建 SQLite 数据目录: " + parent);
+            }
+            hikari.setJdbcUrl("jdbc:sqlite:" + databaseFile.getAbsolutePath());
+            hikari.setDriverClassName("org.sqlite.JDBC");
+            hikari.setMaximumPoolSize(1);
+            hikari.setMinimumIdle(1);
+            hikari.setConnectionInitSql("PRAGMA foreign_keys=ON");
+            return;
+        }
+
+        String host = settings.getString("database.mysql.host", "localhost");
+        int port = settings.getInt("database.mysql.port", 3306);
+        String database = settings.getString("database.mysql.database", "villagerpro");
+        String timezone = settings.getString("database.mysql.server_timezone", "Asia/Shanghai");
+        boolean useSsl = settings.getBoolean("database.mysql.use_ssl", false);
+        if (host == null || host.isBlank() || database == null || !database.matches("[A-Za-z0-9_$-]+")) {
+            throw new IllegalArgumentException("MySQL host 或 database 配置无效");
+        }
+        hikari.setJdbcUrl("jdbc:mysql://" + host + ":" + port + "/" + database
+                + "?useSSL=" + useSsl
+                + "&allowPublicKeyRetrieval=true&useUnicode=true&characterEncoding=UTF-8"
+                + "&serverTimezone=" + timezone);
+        hikari.setDriverClassName("com.mysql.cj.jdbc.Driver");
+        hikari.setUsername(settings.getString("database.mysql.username", "root"));
+        hikari.setPassword(settings.getString("database.mysql.password", ""));
+        int maximumPoolSize = Math.max(1, settings.getInt("database.pool.maximum_size", 10));
+        hikari.setMaximumPoolSize(maximumPoolSize);
+        hikari.setMinimumIdle(Math.min(maximumPoolSize,
+                Math.max(0, settings.getInt("database.pool.minimum_idle", 2))));
+        plugin.getLogger().info("正在连接 MySQL " + host + ":" + port + "/" + database);
     }
     
     /**
      * 创建数据表
      */
-    private static void createTables() {
-        try (Connection connection = dataSource.getConnection();
-             Statement statement = connection.createStatement()) {
+    static void createTables(HikariDataSource targetDataSource, DatabaseDialect targetDialect) throws SQLException {
+        try (Connection connection = targetDataSource.getConnection();
+             Statement jdbcStatement = connection.createStatement()) {
+            SchemaStatement statement = new SchemaStatement(jdbcStatement, targetDialect);
             
             // 创建村庄表
             statement.execute("CREATE TABLE IF NOT EXISTS villages (" +
@@ -56,7 +112,7 @@ public class DatabaseManager {
                     ")");
             
             // 为旧版数据库迁移：添加位置字段
-            migrateVillageLocationColumns(statement);
+            migrateVillageLocationColumns(statement, targetDialect);
             
             // 创建村民表
             statement.execute("CREATE TABLE IF NOT EXISTS villagers (" +
@@ -70,6 +126,7 @@ public class DatabaseManager {
                     "recruited_at DATETIME DEFAULT CURRENT_TIMESTAMP, " +
                     "FOREIGN KEY (village_id) REFERENCES villages(id) ON DELETE CASCADE" +
                     ")");
+            createUniqueIndex(statement, "idx_villagers_entity_uuid", "villagers(entity_uuid)");
             
             // 创建仓库表
             statement.execute("CREATE TABLE IF NOT EXISTS warehouse (" +
@@ -116,7 +173,7 @@ public class DatabaseManager {
                     "custom_data TEXT, " +
                     "FOREIGN KEY (village_id) REFERENCES villages(id) ON DELETE CASCADE" +
                     ")");
-            
+
             // 创建访客交易表
             statement.execute("CREATE TABLE IF NOT EXISTS visitor_deals (" +
                     "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
@@ -254,37 +311,78 @@ public class DatabaseManager {
                     "completed_at DATETIME, " +
                     "FOREIGN KEY (visitor_id) REFERENCES visitors(id) ON DELETE CASCADE" +
                     ")");
+            createUniqueIndex(statement, "idx_visitor_quests_unique",
+                    "visitor_quests(player_uuid, visitor_id, quest_name)");
+
+            statement.execute("CREATE TABLE IF NOT EXISTS festival_claims (" +
+                    "player_uuid TEXT NOT NULL, " +
+                    "festival_name TEXT NOT NULL, " +
+                    "claimed_at DATETIME DEFAULT CURRENT_TIMESTAMP, " +
+                    "PRIMARY KEY (player_uuid, festival_name)" +
+                    ")");
+
+            statement.execute("CREATE TABLE IF NOT EXISTS festival_boosts (" +
+                    "festival_name TEXT PRIMARY KEY, " +
+                    "expires_at INTEGER NOT NULL" +
+                    ")");
+
+            OperationsSchema.createTables(statement);
+            migrateOrderPayoutColumns(statement, targetDialect);
             
             VillagerPro.getInstance().getLogger().info("数据库表创建完成");
-
-        } catch (SQLException e) {
-            VillagerPro.getInstance().getLogger().severe("创建数据库表失败: " + e.getMessage());
         }
     }
     
     /**
      * 为旧版 villages 表迁移位置字段
      */
-    private static void migrateVillageLocationColumns(Statement statement) throws SQLException {
+    private static void migrateVillageLocationColumns(SchemaStatement statement,
+                                                       DatabaseDialect targetDialect) throws SQLException {
         try {
             statement.execute("ALTER TABLE villages ADD COLUMN center_x REAL NOT NULL DEFAULT 0");
         } catch (SQLException e) {
-            // 字段已存在时忽略
+            rethrowUnlessDuplicateColumn(e, targetDialect);
         }
         try {
             statement.execute("ALTER TABLE villages ADD COLUMN center_y REAL NOT NULL DEFAULT 0");
         } catch (SQLException e) {
-            // 字段已存在时忽略
+            rethrowUnlessDuplicateColumn(e, targetDialect);
         }
         try {
             statement.execute("ALTER TABLE villages ADD COLUMN center_z REAL NOT NULL DEFAULT 0");
         } catch (SQLException e) {
-            // 字段已存在时忽略
+            rethrowUnlessDuplicateColumn(e, targetDialect);
         }
         try {
             statement.execute("ALTER TABLE villages ADD COLUMN world TEXT NOT NULL DEFAULT ''");
         } catch (SQLException e) {
-            // 字段已存在时忽略
+            rethrowUnlessDuplicateColumn(e, targetDialect);
+        }
+    }
+
+    static void migrateOrderPayoutColumns(SchemaStatement statement,
+                                          DatabaseDialect targetDialect) throws SQLException {
+        try {
+            statement.execute("ALTER TABLE village_orders "
+                    + "ADD COLUMN payout_money REAL NOT NULL DEFAULT 0");
+        } catch (SQLException e) {
+            rethrowUnlessDuplicateColumn(e, targetDialect);
+        }
+    }
+
+    private static void rethrowUnlessDuplicateColumn(SQLException exception,
+                                                     DatabaseDialect targetDialect) throws SQLException {
+        if (!targetDialect.isDuplicateColumnError(exception)) {
+            throw exception;
+        }
+    }
+
+    private static void createUniqueIndex(SchemaStatement statement, String name, String columns) {
+        try {
+            statement.execute("CREATE UNIQUE INDEX IF NOT EXISTS " + name + " ON " + columns);
+        } catch (SQLException e) {
+            VillagerPro.getInstance().getLogger().warning(
+                    "无法创建唯一索引 " + name + "，请清理重复数据: " + e.getMessage());
         }
     }
     
@@ -298,6 +396,22 @@ public class DatabaseManager {
             throw new SQLException("DataSource is not initialized");
         }
         return dataSource.getConnection();
+    }
+
+    public static DatabaseDialect getDialect() {
+        return dialect;
+    }
+
+    public static String insertIgnore(String insertSql) {
+        return dialect.insertIgnore(insertSql);
+    }
+
+    public static String upsert(String insertSql, String[] conflictColumns, String... updateColumns) {
+        return dialect.upsert(insertSql, conflictColumns, updateColumns);
+    }
+
+    public static String additiveUpsert(String insertSql, String conflictColumn, String amountColumn) {
+        return dialect.additiveUpsert(insertSql, conflictColumn, amountColumn);
     }
     
     /**

@@ -3,6 +3,7 @@ package cn.popcraft.villagerpro.managers;
 import cn.popcraft.villagerpro.VillagerPro;
 import cn.popcraft.villagerpro.database.DatabaseManager;
 import cn.popcraft.villagerpro.models.VillagerData;
+import cn.popcraft.villagerpro.models.Village;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Villager;
@@ -52,8 +53,21 @@ public class PersonalityManager {
      * 与村民互动
      */
     public boolean interactWithVillager(Player player, VillagerData villager, String interactionType) {
+        Village village = VillageManager.getVillage(player.getUniqueId());
+        if (village == null || villager.getVillageId() != village.getId()) {
+            player.sendMessage("§c你只能与自己村庄的村民互动");
+            return false;
+        }
         VillagerPersonality personality = getVillagerPersonality(villager);
         if (personality == null) return false;
+
+        long cooldownMillis = plugin.getConfig().getLong(
+                "personality.interactions.cooldown_seconds", 30L) * 1000L;
+        long remaining = personality.getLastInteraction() + cooldownMillis - System.currentTimeMillis();
+        if (remaining > 0) {
+            player.sendMessage("§c请等待 " + ((remaining + 999) / 1000) + " 秒后再互动");
+            return false;
+        }
         
         boolean success = false;
         int loyaltyChange = 0;
@@ -98,6 +112,18 @@ public class PersonalityManager {
         }
         
         return false;
+    }
+
+    public void rewardVillageLevelUp(Village village) {
+        int reward = plugin.getConfig().getInt("personality.interactions.level_up_reward", 15);
+        for (VillagerData villager : VillagerManager.getVillagers(village.getId())) {
+            VillagerPersonality personality = getVillagerPersonality(villager);
+            if (personality == null) continue;
+            personality.addLoyalty(reward);
+            personality.addMood(reward);
+            savePersonalityToDatabase(villager, personality);
+            checkSpecialEffects(villager, personality);
+        }
     }
     
     /**
@@ -161,10 +187,6 @@ public class PersonalityManager {
             enableMaxMoodEffects(villager);
         }
         
-        // 低忠诚度警告
-        if (loyalty <= plugin.getConfig().getInt("personality.loyalty.leave_threshold", 20)) {
-            enableLowLoyaltyWarning(villager);
-        }
     }
     
     /**
@@ -193,21 +215,6 @@ public class PersonalityManager {
             Villager bukkitVillager = (Villager) villager.getEntity();
             // 村民心情愉悦，移动更快
             bukkitVillager.addPotionEffect(new PotionEffect(PotionEffectType.SPEED, 600, 1));
-        }
-    }
-    
-    /**
-     * 启用低忠诚度警告
-     */
-    private void enableLowLoyaltyWarning(VillagerData villager) {
-        if (villager.getEntity() instanceof Villager) {
-            Villager bukkitVillager = (Villager) villager.getEntity();
-            // 村民显示悲伤粒子效果
-            bukkitVillager.getWorld().getPlayers().forEach(player -> {
-                if (player.getLocation().distance(bukkitVillager.getLocation()) <= 10) {
-                    player.sendMessage("§c警告: " + villager.getProfession() + " 的忠诚度很低，可能离开村庄！");
-                }
-            });
         }
     }
     
@@ -263,8 +270,9 @@ public class PersonalityManager {
      */
     private void savePersonalityToDatabase(VillagerData villager, VillagerPersonality personality) {
         try (Connection conn = DatabaseManager.getConnection();
-             PreparedStatement stmt = conn.prepareStatement(
-                 "INSERT OR REPLACE INTO villager_personality (villager_id, loyalty, mood, last_interaction, interaction_count) VALUES (?, ?, ?, ?, ?)")) {
+             PreparedStatement stmt = conn.prepareStatement(DatabaseManager.upsert(
+                 "INSERT INTO villager_personality (villager_id, loyalty, mood, last_interaction, interaction_count) VALUES (?, ?, ?, ?, ?)",
+                 new String[]{"villager_id"}, "loyalty", "mood", "last_interaction", "interaction_count"))) {
             
             stmt.setInt(1, personality.getVillagerId());
             stmt.setInt(2, personality.getLoyalty());
