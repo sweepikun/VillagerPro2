@@ -11,6 +11,8 @@ import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.World;
 import org.bukkit.configuration.ConfigurationSection;
+import org.bukkit.entity.Entity;
+import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Villager;
 import org.bukkit.scheduler.BukkitRunnable;
@@ -60,7 +62,7 @@ public class VisitorManager {
         cleanupExpiredVisitors();
         
         // 恢复活跃的访客
-        restoreActiveVisitors();
+        restoreActiveVisitors(findPersistedVisitorEntities());
         
         // 初始化调度器
         scheduler = new VisitorScheduler();
@@ -125,8 +127,7 @@ public class VisitorManager {
         String displayName = getDisplayName(type, name);
         
         // 计算过期时间
-        int stayMinutes = VillagerPro.getInstance().getConfig().getInt("visitors.stay_duration_minutes", 10);
-        Timestamp expiresAt = new Timestamp(System.currentTimeMillis() + (stayMinutes * 60 * 1000));
+        Timestamp expiresAt = visitorExpiryTimestamp();
         
         // 创建访客数据
         VisitorData visitor = new VisitorData(0, village.getId(), type, center, name, displayName, 
@@ -167,11 +168,9 @@ public class VisitorManager {
         VisitorData visitor = activeVisitors.remove(visitorId);
         if (visitor != null) {
             visitor.removeEntity();
-            deleteVisitorFromDatabase(visitorId);
-            
-            // 清理相关的交易记录
-            visitorDeals.remove(visitorId);
         }
+        deleteVisitorFromDatabase(visitorId);
+        visitorDeals.remove(visitorId);
     }
     
     /**
@@ -196,6 +195,27 @@ public class VisitorManager {
         VisitorData visitor = activeVisitors.get(visitorId);
         return visitor != null && visitor.isActive() ? visitor : null;
     }
+
+    public void restoreEntityState(Entity entity) {
+        Integer visitorId = VisitorData.getPersistentVisitorId(entity);
+        if (visitorId == null) return;
+        if (!(entity instanceof LivingEntity livingEntity)) {
+            entity.remove();
+            return;
+        }
+        VisitorData visitor = activeVisitors.get(visitorId);
+        if (visitor == null || visitor.isExpired()) {
+            livingEntity.remove();
+            return;
+        }
+        LivingEntity current = visitor.getEntity();
+        if (current == null || !current.isValid()
+                || current.getUniqueId().equals(livingEntity.getUniqueId())) {
+            visitor.bindExistingEntity(livingEntity);
+        } else {
+            livingEntity.remove();
+        }
+    }
     
     /**
      * 获取访客的交易列表
@@ -212,8 +232,7 @@ public class VisitorManager {
         if (visitor == null) {
             return null; // 没有访客上下文时不记录交易
         }
-        int stayMinutes = VillagerPro.getInstance().getConfig().getInt("visitors.stay_duration_minutes", 10);
-        Timestamp expiresAt = new Timestamp(System.currentTimeMillis() + (stayMinutes * 60 * 1000));
+        Timestamp expiresAt = visitorExpiryTimestamp();
         
         VisitorDeal deal = new VisitorDeal(0, visitor.getId(), dealType, itemType, amount, 
                                          price, "", 0, "", playerName, new Timestamp(System.currentTimeMillis()), 
@@ -373,7 +392,8 @@ public class VisitorManager {
     private void cleanupExpiredVisitors() {
         try (Connection conn = DatabaseManager.getConnection();
              PreparedStatement stmt = conn.prepareStatement(
-                 "DELETE FROM visitors WHERE expires_at < CURRENT_TIMESTAMP")) {
+                 "DELETE FROM visitors WHERE expires_at < ?")) {
+            stmt.setTimestamp(1, new Timestamp(System.currentTimeMillis()));
             
             int deleted = stmt.executeUpdate();
             if (deleted > 0) {
@@ -387,10 +407,11 @@ public class VisitorManager {
     /**
      * 恢复活跃访客
      */
-    private void restoreActiveVisitors() {
+    private void restoreActiveVisitors(Map<Integer, LivingEntity> persistedEntities) {
         try (Connection conn = DatabaseManager.getConnection();
              PreparedStatement stmt = conn.prepareStatement(
-                 "SELECT * FROM visitors WHERE expires_at > CURRENT_TIMESTAMP AND active = 1 ORDER BY id")) {
+                 "SELECT * FROM visitors WHERE expires_at > ? AND active = 1 ORDER BY id")) {
+            stmt.setTimestamp(1, new Timestamp(System.currentTimeMillis()));
             
             ResultSet rs = stmt.executeQuery();
             while (rs.next()) {
@@ -421,7 +442,13 @@ public class VisitorManager {
                     expiresAt, customData
                 );
                 
-                if (visitor.spawnEntity()) {
+                LivingEntity persisted = persistedEntities.remove(id);
+                if (persisted != null && persisted.isValid()) {
+                    visitor.bindExistingEntity(persisted);
+                    activeVisitors.put(id, visitor);
+                    visitor.createCleanupTask();
+                    VillagerPro.getInstance().getLogger().info("已恢复持久访客 " + name);
+                } else if (visitor.spawnEntity()) {
                     activeVisitors.put(id, visitor);
                     visitor.createCleanupTask();
                     VillagerPro.getInstance().getLogger().info("已恢复访客: " + name);
@@ -436,8 +463,42 @@ public class VisitorManager {
         } catch (SQLException e) {
             VillagerPro.getInstance().getLogger().warning("恢复访客数据失败: " + e.getMessage());
         }
+        for (LivingEntity staleEntity : persistedEntities.values()) {
+            if (staleEntity.isValid()) staleEntity.remove();
+        }
+    }
+
+    private Map<Integer, LivingEntity> findPersistedVisitorEntities() {
+        Map<Integer, LivingEntity> result = new HashMap<>();
+        for (World world : Bukkit.getWorlds()) {
+            for (Entity entity : world.getEntities()) {
+                Integer visitorId = VisitorData.getPersistentVisitorId(entity);
+                if (visitorId == null) continue;
+                if (!(entity instanceof LivingEntity livingEntity)) {
+                    entity.remove();
+                    continue;
+                }
+                LivingEntity duplicate = result.putIfAbsent(visitorId, livingEntity);
+                if (duplicate != null && livingEntity.isValid()) livingEntity.remove();
+            }
+        }
+        return result;
     }
     
+    private Timestamp visitorExpiryTimestamp() {
+        long now = System.currentTimeMillis();
+        long minutes = Math.max(0L, VillagerPro.getInstance().getConfig()
+                .getLong("visitors.stay_duration_minutes", 10L));
+        long duration;
+        if (minutes > Long.MAX_VALUE / 60_000L) {
+            duration = Long.MAX_VALUE;
+        } else {
+            duration = minutes * 60_000L;
+        }
+        long expiry = duration > Long.MAX_VALUE - now ? Long.MAX_VALUE : now + duration;
+        return new Timestamp(expiry);
+    }
+
     /**
      * 保存访客到数据库
      */

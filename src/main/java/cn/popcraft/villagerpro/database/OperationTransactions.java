@@ -5,8 +5,23 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.Statement;
+import java.util.List;
+import java.util.Map;
 
 public final class OperationTransactions {
+    public record NeedSupply(List<String> candidates, double restoration) {
+    }
+
+    public record NeedsSettlement(boolean saved, double hunger, double comfort, double health,
+                                  String consumed) {
+    }
+
+    public record CrisisSettlement(boolean settled, int prosperity) {
+    }
+
+    public record ProsperityAdjustment(boolean adjusted, int prosperity) {
+    }
+
     private OperationTransactions() {
     }
 
@@ -14,9 +29,20 @@ public final class OperationTransactions {
                                           String cargoItem, int cargoAmount,
                                           int configuredReserve, double frozenFraction,
                                           String destination, String returnItem, int returnAmount,
-                                          boolean successful, long departedAt, long arrivesAt)
+                                          boolean successful, long departedAt, long arrivesAt,
+                                          int maxActiveRoutes)
             throws SQLException {
         return inTransaction(connection, () -> {
+            if (!lockVillage(connection, villageId)) return false;
+            try (PreparedStatement activeRoutes = connection.prepareStatement(
+                    "SELECT COUNT(*) FROM caravan_routes WHERE village_id = ? "
+                            + "AND status IN ('traveling', 'ready')")) {
+                activeRoutes.setInt(1, villageId);
+                try (ResultSet resultSet = activeRoutes.executeQuery()) {
+                    if (!resultSet.next()
+                            || resultSet.getInt(1) >= Math.max(1, maxActiveRoutes)) return false;
+                }
+            }
             try (PreparedStatement remove = connection.prepareStatement(
                     "UPDATE warehouse SET amount = amount - ? WHERE village_id = ? AND item_type = ? "
                             + "AND amount >= ? AND amount - ? >= ? AND amount - ? >= amount * ?")) {
@@ -49,9 +75,10 @@ public final class OperationTransactions {
     }
 
     public static boolean claimCaravan(Connection connection, DatabaseDialect dialect,
-                                       int routeId, int villageId,
-                                       String returnItem, int returnAmount) throws SQLException {
+                                       int routeId, int villageId, String returnItem,
+                                       int returnAmount, int warehouseCapacity) throws SQLException {
         return inTransaction(connection, () -> {
+            if (!lockVillage(connection, villageId)) return false;
             try (PreparedStatement claim = connection.prepareStatement(
                     "UPDATE caravan_routes SET status = 'claimed' "
                             + "WHERE id = ? AND village_id = ? AND status = 'ready'")) {
@@ -59,6 +86,7 @@ public final class OperationTransactions {
                 claim.setInt(2, villageId);
                 if (claim.executeUpdate() != 1) return false;
             }
+            if (!hasSpaceFor(connection, villageId, returnAmount, warehouseCapacity)) return false;
             String sql = dialect.additiveUpsert(
                     "INSERT INTO warehouse (village_id, item_type, amount) VALUES (?, ?, ?)",
                     "village_id, item_type", "amount");
@@ -100,9 +128,12 @@ public final class OperationTransactions {
         });
     }
 
-    public static boolean settleCrisis(Connection connection, int villageId, String crisisId,
-                                       long nextRollAt, int nextProsperity) throws SQLException {
-        return inTransaction(connection, () -> {
+    public static CrisisSettlement settleCrisis(Connection connection, int villageId, String crisisId,
+                                                 long nextRollAt, int prosperityDelta)
+            throws SQLException {
+        int[] resultingProsperity = {-1};
+        boolean settled = inTransaction(connection, () -> {
+            if (!lockVillage(connection, villageId)) return false;
             try (PreparedStatement state = connection.prepareStatement(
                     "UPDATE village_crises SET crisis_id = '', status = 'waiting', required_item = '', "
                             + "required_amount = 0, contributed_amount = 0, started_at_ms = 0, "
@@ -113,20 +144,108 @@ public final class OperationTransactions {
                 state.setString(3, crisisId);
                 if (state.executeUpdate() != 1) return false;
             }
+            int currentProsperity;
+            try (PreparedStatement village = connection.prepareStatement(
+                    "SELECT prosperity FROM villages WHERE id = ?")) {
+                village.setInt(1, villageId);
+                try (ResultSet resultSet = village.executeQuery()) {
+                    if (!resultSet.next()) return false;
+                    currentProsperity = resultSet.getInt(1);
+                }
+            }
+            resultingProsperity[0] = Math.max(0, currentProsperity + prosperityDelta);
             try (PreparedStatement prosperity = connection.prepareStatement(
                     "UPDATE villages SET prosperity = ? WHERE id = ?")) {
-                prosperity.setInt(1, nextProsperity);
+                prosperity.setInt(1, resultingProsperity[0]);
                 prosperity.setInt(2, villageId);
                 return prosperity.executeUpdate() == 1;
             }
         });
+        return new CrisisSettlement(settled, settled ? resultingProsperity[0] : -1);
+    }
+
+    public static ProsperityAdjustment adjustVillageProsperity(Connection connection, int villageId,
+                                                                int delta) throws SQLException {
+        int[] resultingProsperity = {-1};
+        boolean adjusted = inTransaction(connection, () -> {
+            if (!lockVillage(connection, villageId)) return false;
+            int currentProsperity;
+            try (PreparedStatement village = connection.prepareStatement(
+                    "SELECT prosperity FROM villages WHERE id = ?")) {
+                village.setInt(1, villageId);
+                try (ResultSet resultSet = village.executeQuery()) {
+                    if (!resultSet.next()) return false;
+                    currentProsperity = resultSet.getInt(1);
+                }
+            }
+            resultingProsperity[0] = Math.max(0, currentProsperity + delta);
+            try (PreparedStatement update = connection.prepareStatement(
+                    "UPDATE villages SET prosperity = ? WHERE id = ?")) {
+                update.setInt(1, resultingProsperity[0]);
+                update.setInt(2, villageId);
+                return update.executeUpdate() == 1;
+            }
+        });
+        return new ProsperityAdjustment(adjusted, adjusted ? resultingProsperity[0] : -1);
+    }
+
+    public static NeedsSettlement settleVillagerNeeds(Connection connection, int villageId,
+                                                       int villagerId, long expectedLastUpdatedMs,
+                                                       long updatedAtMs, double hunger, double comfort,
+                                                       double health, String previousConsumed,
+                                                       double threshold, NeedSupply food,
+                                                       NeedSupply comfortSupply, NeedSupply healthSupply,
+                                                       Map<String, Integer> reserves,
+                                                       double frozenFraction) throws SQLException {
+        double[] values = {clampNeed(hunger), clampNeed(comfort), clampNeed(health)};
+        String[] consumed = {""};
+        boolean saved = inTransaction(connection, () -> {
+            if (values[0] < threshold) {
+                String item = removeFirstProtectedStock(connection, villageId, food.candidates(), reserves,
+                        frozenFraction);
+                if (item != null) {
+                    values[0] = clampNeed(values[0] + Math.max(0, food.restoration()));
+                    consumed[0] = appendConsumed(consumed[0], item);
+                }
+            }
+            if (values[1] < threshold) {
+                String item = removeFirstProtectedStock(connection, villageId, comfortSupply.candidates(), reserves,
+                        frozenFraction);
+                if (item != null) {
+                    values[1] = clampNeed(values[1] + Math.max(0, comfortSupply.restoration()));
+                    consumed[0] = appendConsumed(consumed[0], item);
+                }
+            }
+            if (values[2] < threshold) {
+                String item = removeFirstProtectedStock(connection, villageId, healthSupply.candidates(), reserves,
+                        frozenFraction);
+                if (item != null) {
+                    values[2] = clampNeed(values[2] + Math.max(0, healthSupply.restoration()));
+                    consumed[0] = appendConsumed(consumed[0], item);
+                }
+            }
+            try (PreparedStatement update = connection.prepareStatement(
+                    "UPDATE villager_needs SET hunger = ?, comfort = ?, health = ?, last_updated_ms = ?, "
+                            + "last_consumed = ? WHERE villager_id = ? AND last_updated_ms = ?")) {
+                update.setDouble(1, values[0]);
+                update.setDouble(2, values[1]);
+                update.setDouble(3, values[2]);
+                update.setLong(4, updatedAtMs);
+                update.setString(5, consumed[0].isBlank() ? previousConsumed : consumed[0]);
+                update.setInt(6, villagerId);
+                update.setLong(7, expectedLastUpdatedMs);
+                return update.executeUpdate() == 1;
+            }
+        });
+        return new NeedsSettlement(saved, values[0], values[1], values[2], consumed[0]);
     }
 
     public static boolean acceptOrder(Connection connection, int orderId, int villageId,
                                       String itemType, int amount,
                                       int configuredReserve, double frozenFraction,
-                                      double payoutMoney, int nextProsperity) throws SQLException {
+                                      double payoutMoney, int prosperityReward) throws SQLException {
         return inTransaction(connection, () -> {
+            if (!lockVillage(connection, villageId)) return false;
             try (PreparedStatement remove = connection.prepareStatement(
                     "UPDATE warehouse SET amount = amount - ? WHERE village_id = ? AND item_type = ? "
                             + "AND amount >= ? AND amount - ? >= ? AND amount - ? >= amount * ?")) {
@@ -148,10 +267,14 @@ public final class OperationTransactions {
                 order.setInt(3, villageId);
                 if (order.executeUpdate() != 1) return false;
             }
+            int safeProsperityReward = Math.max(0, prosperityReward);
             try (PreparedStatement prosperity = connection.prepareStatement(
-                    "UPDATE villages SET prosperity = ? WHERE id = ?")) {
-                prosperity.setInt(1, Math.max(0, nextProsperity));
-                prosperity.setInt(2, villageId);
+                    "UPDATE villages SET prosperity = CASE WHEN prosperity > ? THEN ? "
+                            + "ELSE prosperity + ? END WHERE id = ?")) {
+                prosperity.setInt(1, Integer.MAX_VALUE - safeProsperityReward);
+                prosperity.setInt(2, Integer.MAX_VALUE);
+                prosperity.setInt(3, safeProsperityReward);
+                prosperity.setInt(4, villageId);
                 return prosperity.executeUpdate() == 1;
             }
         });
@@ -164,6 +287,7 @@ public final class OperationTransactions {
                                                int configuredReserve, double frozenFraction,
                                                int warehouseCapacity) throws SQLException {
         return inTransaction(connection, () -> {
+            if (!lockVillage(connection, villageId)) return false;
             if (!removeProtectedStock(connection, villageId, inputItem, inputAmount,
                     configuredReserve, frozenFraction)) return false;
             if (!hasSpaceFor(connection, villageId, rewardAmount, warehouseCapacity)) return false;
@@ -201,6 +325,7 @@ public final class OperationTransactions {
             throws SQLException {
         long[] boostExpiry = {0};
         boolean claimed = inTransaction(connection, () -> {
+            if (!lockVillage(connection, villageId)) return false;
             try (PreparedStatement claim = connection.prepareStatement(dialect.insertIgnore(
                     "INSERT INTO festival_claims (player_uuid, festival_name) VALUES (?, ?)"))) {
                 claim.setString(1, playerUuid);
@@ -552,6 +677,31 @@ public final class OperationTransactions {
         return recruited ? generatedId[0] : -1;
     }
 
+    public static int storeWarehouseStock(Connection connection, DatabaseDialect dialect,
+                                          int villageId, String itemType, int requestedAmount,
+                                          int warehouseCapacity) throws SQLException {
+        if (villageId <= 0 || itemType == null || itemType.isBlank()
+                || requestedAmount <= 0 || warehouseCapacity <= 0) return 0;
+        int[] storedAmount = {0};
+        boolean stored = inTransaction(connection, () -> {
+            if (!lockVillage(connection, villageId)) return false;
+            long currentStorage;
+            try (PreparedStatement total = connection.prepareStatement(
+                    "SELECT COALESCE(SUM(amount), 0) FROM warehouse WHERE village_id = ?")) {
+                total.setInt(1, villageId);
+                try (ResultSet resultSet = total.executeQuery()) {
+                    if (!resultSet.next()) return false;
+                    currentStorage = Math.max(0L, resultSet.getLong(1));
+                }
+            }
+            long remainingCapacity = Math.max(0L, (long) warehouseCapacity - currentStorage);
+            storedAmount[0] = (int) Math.min(requestedAmount, remainingCapacity);
+            return storedAmount[0] > 0
+                    && storeStock(connection, dialect, villageId, itemType, storedAmount[0]);
+        });
+        return stored ? storedAmount[0] : 0;
+    }
+
     private static boolean visitorExists(Connection connection, int visitorId) throws SQLException {
         try (PreparedStatement statement = connection.prepareStatement(
                 "SELECT 1 FROM visitors WHERE id = ? AND active = 1")) {
@@ -587,7 +737,9 @@ public final class OperationTransactions {
                 "SELECT COALESCE(SUM(amount), 0) FROM warehouse WHERE village_id = ?")) {
             statement.setInt(1, villageId);
             try (ResultSet resultSet = statement.executeQuery()) {
-                return resultSet.next() && resultSet.getInt(1) + amount <= warehouseCapacity;
+                if (!resultSet.next()) return false;
+                long current = Math.max(0L, resultSet.getLong(1));
+                return current + (long) amount <= Math.max(0L, warehouseCapacity);
             }
         }
     }
@@ -603,6 +755,41 @@ public final class OperationTransactions {
             store.setInt(3, amount);
             return store.executeUpdate() > 0;
         }
+    }
+
+    private static boolean lockVillage(Connection connection, int villageId) throws SQLException {
+        try (PreparedStatement lock = connection.prepareStatement(
+                "UPDATE villages SET id = id WHERE id = ?")) {
+            lock.setInt(1, villageId);
+            lock.executeUpdate();
+        }
+        try (PreparedStatement exists = connection.prepareStatement(
+                "SELECT 1 FROM villages WHERE id = ?")) {
+            exists.setInt(1, villageId);
+            return exists.executeQuery().next();
+        }
+    }
+
+    private static String removeFirstProtectedStock(Connection connection, int villageId,
+                                                    List<String> candidates,
+                                                    Map<String, Integer> reserves,
+                                                    double frozenFraction) throws SQLException {
+        for (String item : candidates) {
+            if (item == null || item.isBlank()) continue;
+            int reserve = Math.max(0, reserves.getOrDefault(item, 0));
+            if (removeProtectedStock(connection, villageId, item, 1, reserve, frozenFraction)) {
+                return item;
+            }
+        }
+        return null;
+    }
+
+    private static double clampNeed(double value) {
+        return Math.max(0, Math.min(100, value));
+    }
+
+    private static String appendConsumed(String current, String item) {
+        return current == null || current.isBlank() ? item : current + ", " + item;
     }
 
     private static boolean inTransaction(Connection connection, TransactionWork work)

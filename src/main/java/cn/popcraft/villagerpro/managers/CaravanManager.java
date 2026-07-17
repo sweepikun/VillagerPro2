@@ -144,8 +144,12 @@ public final class CaravanManager {
                         .getDouble("caravans.risk_reduction_per_village_level", 0.02));
         boolean successful = ThreadLocalRandom.current().nextDouble() >= risk;
         long now = System.currentTimeMillis();
-        long durationMinutes = Math.max(1, VillagerPro.getInstance().getConfig()
+        long durationMinutes = Math.max(1L, VillagerPro.getInstance().getConfig()
                 .getLong(path + ".duration_minutes", 60));
+        long durationMillis = durationMinutes > Long.MAX_VALUE / 60_000L
+                ? Long.MAX_VALUE : durationMinutes * 60_000L;
+        long arrivesAt = durationMillis > Long.MAX_VALUE - now
+                ? Long.MAX_VALUE : now + durationMillis;
         int configuredReserve = WarehouseRuleManager.getItemRule(
                 village.getId(), item).getReserveAmount();
         double frozenFraction = PolicyManager.getFrozenStockFraction(village.getId());
@@ -153,7 +157,7 @@ public final class CaravanManager {
             if (!OperationTransactions.dispatchCaravan(connection, village.getId(), item, amount,
                     configuredReserve, frozenFraction,
                     destination, returnItem, returnAmount, successful, now,
-                    now + durationMinutes * 60_000L)) {
+                    arrivesAt, maxActive)) {
                 player.sendMessage("§c货物状态已经变化，商队未出发且没有扣除物品");
                 return false;
             }
@@ -192,8 +196,9 @@ public final class CaravanManager {
         }
         try (Connection connection = DatabaseManager.getConnection()) {
             if (!OperationTransactions.claimCaravan(connection, DatabaseManager.getDialect(),
-                    route.id(), village.getId(), route.returnItem(), route.returnAmount())) {
-                player.sendMessage("§c该商队已经被领取或状态发生变化");
+                    route.id(), village.getId(), route.returnItem(), route.returnAmount(),
+                    village.getWarehouseCapacity())) {
+                player.sendMessage("§c商队状态或仓库空间已经变化，回程货物仍在等待");
                 return false;
             }
         } catch (SQLException exception) {

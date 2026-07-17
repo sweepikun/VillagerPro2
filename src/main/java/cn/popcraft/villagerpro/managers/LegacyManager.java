@@ -460,7 +460,7 @@ public class LegacyManager {
         if (villager.getEntity() instanceof Villager) {
             villager.getEntity().remove();
         }
-        deleteVillagerFromDatabase(villager.getId());
+        VillagerManager.removeVillager(villager.getId());
     }
     
     /**
@@ -512,8 +512,15 @@ public class LegacyManager {
                  PreparedStatement stmt = connection.prepareStatement(sql)) {
                 stmt.setString(1, bukkitVillager.getUniqueId().toString());
                 stmt.setInt(2, villager.getId());
-                stmt.executeUpdate();
+                if (stmt.executeUpdate() != 1) {
+                    bukkitVillager.remove();
+                    return false;
+                }
             }
+            villager.setEntityUUID(bukkitVillager.getUniqueId());
+            CacheManager.cacheVillager(villager);
+            CacheManager.invalidateVillageVillagers(villager.getVillageId());
+            VillagerManager.refreshEntityDisplayName(villager);
             
             return true;
         } catch (Exception e) {

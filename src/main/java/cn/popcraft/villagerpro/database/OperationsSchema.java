@@ -28,6 +28,15 @@ public final class OperationsSchema {
         statement.execute("CREATE INDEX IF NOT EXISTS idx_visitor_shop_product " +
                 "ON visitor_shop_sales(visitor_id, product_id)");
 
+        statement.execute("CREATE TABLE IF NOT EXISTS active_guards (" +
+                "guard_id TEXT PRIMARY KEY, " +
+                "village_id INTEGER NOT NULL, " +
+                "expires_at_ms INTEGER NOT NULL, " +
+                "FOREIGN KEY (village_id) REFERENCES villages(id) ON DELETE CASCADE" +
+                ")");
+        statement.execute("CREATE INDEX IF NOT EXISTS idx_active_guards_village_expiry " +
+                "ON active_guards(village_id, expires_at_ms)");
+
         statement.execute("CREATE TABLE IF NOT EXISTS village_buildings (" +
                 "id INTEGER PRIMARY KEY AUTOINCREMENT, " +
                 "village_id INTEGER NOT NULL, " +

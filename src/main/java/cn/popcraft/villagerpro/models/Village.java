@@ -59,9 +59,9 @@ public class Village {
         this.id = id;
         this.ownerUUID = ownerUUID;
         this.name = name;
-        this.level = level;
-        this.experience = experience;
-        this.prosperity = prosperity;
+        this.level = Math.max(1, level);
+        this.experience = Math.max(0, experience);
+        this.prosperity = Math.max(0, prosperity);
         this.centerX = centerX;
         this.centerY = centerY;
         this.centerZ = centerZ;
@@ -99,7 +99,7 @@ public class Village {
     }
     
     public void setLevel(int level) {
-        this.level = level;
+        this.level = Math.max(1, level);
     }
     
     public int getExperience() {
@@ -107,7 +107,7 @@ public class Village {
     }
     
     public void setExperience(int experience) {
-        this.experience = experience;
+        this.experience = Math.max(0, experience);
     }
     
     public int getProsperity() {
@@ -115,7 +115,7 @@ public class Village {
     }
     
     public void setProsperity(int prosperity) {
-        this.prosperity = prosperity;
+        this.prosperity = Math.max(0, prosperity);
     }
     
     public double getCenterX() {
@@ -201,19 +201,29 @@ public class Village {
      */
     public int getWarehouseCapacity() {
         // 基础容量 + 每级增加容量
-        int baseCapacity = VillagerPro.getInstance().getConfig().getInt("village.base_warehouse_capacity", 50);
-        int levelBonus = (level - 1) * VillagerPro.getInstance().getConfig().getInt("village.warehouse_capacity_per_level", 25);
+        long capacity = Math.max(0L, VillagerPro.getInstance().getConfig()
+                .getInt("village.base_warehouse_capacity", 50));
+        capacity = Math.min(Integer.MAX_VALUE, capacity
+                + Math.min(Integer.MAX_VALUE,
+                Math.max(0L, (long) level - 1L) * Math.max(0L,
+                        VillagerPro.getInstance().getConfig()
+                                .getInt("village.warehouse_capacity_per_level", 25))));
         
         // 检查是否有仓储扩容升级
         Map<String, Integer> villageUpgrades = getUpgrades();
         Integer warehouseUpgrade = villageUpgrades.get("warehouse_expansion");
         if (warehouseUpgrade != null) {
-            levelBonus += warehouseUpgrade * VillageUpgradeManager.getIntEffect(
-                    "warehouse_expansion", "capacity_per_level", 50);
+            capacity = Math.min(Integer.MAX_VALUE, capacity
+                    + Math.min(Integer.MAX_VALUE,
+                    Math.max(0L, warehouseUpgrade.longValue()) * Math.max(0L,
+                            VillageUpgradeManager.getIntEffect(
+                                    "warehouse_expansion", "capacity_per_level", 50))));
         }
-        
+        capacity = Math.min(Integer.MAX_VALUE, capacity
+                + Math.max(0L, BuildingManager.getWarehouseCapacityBonus(id)));
+
         return PolicyManager.applyWarehouseCapacity(id,
-                baseCapacity + levelBonus + BuildingManager.getWarehouseCapacityBonus(id));
+                (int) Math.min(Integer.MAX_VALUE, capacity));
     }
     
     /**
@@ -257,7 +267,8 @@ public class Village {
      * @param exp 经验值
      */
     public void addExperience(int exp) {
-        this.experience += exp;
+        long updated = (long) this.experience + exp;
+        this.experience = (int) Math.max(0L, Math.min(Integer.MAX_VALUE, updated));
     }
     
     /**
@@ -265,6 +276,7 @@ public class Village {
      * @param prosperity 繁荣度
      */
     public void addProsperity(int prosperity) {
-        this.prosperity += prosperity;
+        long updated = (long) this.prosperity + prosperity;
+        this.prosperity = (int) Math.max(0L, Math.min(Integer.MAX_VALUE, updated));
     }
 }

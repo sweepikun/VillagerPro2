@@ -8,6 +8,7 @@ import cn.popcraft.villagerpro.economy.CostHandler;
 import cn.popcraft.villagerpro.models.Village;
 import cn.popcraft.villagerpro.models.VillagerData;
 import org.bukkit.entity.Player;
+import org.bukkit.entity.Villager;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
@@ -29,6 +30,7 @@ public class VillagerManager {
         // 先检查缓存
         List<VillagerData> cachedVillagers = CacheManager.getCachedVillageVillagers(villageId);
         if (cachedVillagers != null) {
+            cachedVillagers.forEach(VillagerManager::refreshEntityDisplayName);
             return cachedVillagers;
         }
         
@@ -52,6 +54,7 @@ public class VillagerManager {
                         resultSet.getString("follow_mode")
                 );
                 villagers.add(villager);
+                refreshEntityDisplayName(villager);
             }
             
             // 缓存村民列表
@@ -60,6 +63,29 @@ public class VillagerManager {
             VillagerPro.getInstance().getLogger().warning("数据库操作失败：" + e.getMessage());
         }
         
+        return villagers;
+    }
+
+    public static List<VillagerData> getAllVillagers() {
+        List<VillagerData> villagers = new ArrayList<>();
+        try (Connection connection = DatabaseManager.getConnection();
+             PreparedStatement statement = connection.prepareStatement(
+                     "SELECT id, village_id, entity_uuid, profession, level, experience, follow_mode "
+                             + "FROM villagers")) {
+            try (ResultSet resultSet = statement.executeQuery()) {
+                while (resultSet.next()) {
+                    VillagerData villager = new VillagerData(
+                            resultSet.getInt("id"), resultSet.getInt("village_id"),
+                            UUID.fromString(resultSet.getString("entity_uuid")),
+                            resultSet.getString("profession"), resultSet.getInt("level"),
+                            resultSet.getInt("experience"), resultSet.getString("follow_mode"));
+                    CacheManager.cacheVillager(villager);
+                    villagers.add(villager);
+                }
+            }
+        } catch (SQLException e) {
+            VillagerPro.getInstance().getLogger().warning("读取全部村民失败：" + e.getMessage());
+        }
         return villagers;
     }
     
@@ -72,6 +98,7 @@ public class VillagerManager {
         // 先检查缓存
         VillagerData cachedVillager = CacheManager.getCachedVillagerByEntity(entityUUID);
         if (cachedVillager != null) {
+            refreshEntityDisplayName(cachedVillager);
             return cachedVillager;
         }
         
@@ -94,6 +121,7 @@ public class VillagerManager {
                 );
                 // 缓存村民数据
                 CacheManager.cacheVillager(villager);
+                refreshEntityDisplayName(villager);
                 return villager;
             }
         } catch (SQLException e) {
@@ -112,6 +140,7 @@ public class VillagerManager {
         // 先检查缓存
         VillagerData cachedVillager = CacheManager.getCachedVillagerById(id);
         if (cachedVillager != null) {
+            refreshEntityDisplayName(cachedVillager);
             return cachedVillager;
         }
         
@@ -134,6 +163,7 @@ public class VillagerManager {
                 );
                 // 缓存村民数据
                 CacheManager.cacheVillager(villager);
+                refreshEntityDisplayName(villager);
                 return villager;
             }
         } catch (SQLException e) {
@@ -219,10 +249,20 @@ public class VillagerManager {
             boolean success = statement.executeUpdate() > 0;
             
             if (success) {
+                cn.popcraft.villagerpro.scheduler.WorkScheduler.removeVillagerSchedule(villagerId);
+                FollowManager.releaseModeState(villager);
+                NeedsManager.removeNeeds(villagerId);
+                PersonalityManager.removePersonalityCache(villager);
+                SpecializationManager.removeSpecializationCache(villagerId);
+                WorkstationManager.removeWorkstationCache(villagerId);
                 // 清除缓存
                 CacheManager.invalidateVillager(villagerId);
                 if (villageId > 0) {
                     CacheManager.invalidateVillageVillagers(villageId);
+                    Village updatedVillage = VillageManager.getVillageById(villageId);
+                    if (updatedVillage != null) {
+                        VillagerAbilityManager.applyVillageHealthBoost(updatedVillage);
+                    }
                 }
             }
             
@@ -290,6 +330,25 @@ public class VillagerManager {
             return false;
         }
     }
+
+    public static boolean updateFollowMode(VillagerData villager, String expectedMode,
+                                           String nextMode) {
+        try (Connection connection = DatabaseManager.getConnection();
+             PreparedStatement statement = connection.prepareStatement(
+                     "UPDATE villagers SET follow_mode = ? WHERE id = ? AND follow_mode = ?")) {
+            statement.setString(1, nextMode);
+            statement.setInt(2, villager.getId());
+            statement.setString(3, expectedMode);
+            if (statement.executeUpdate() != 1) return false;
+            villager.setFollowMode(nextMode);
+            CacheManager.cacheVillager(villager);
+            CacheManager.invalidateVillageVillagers(villager.getVillageId());
+            return true;
+        } catch (SQLException e) {
+            VillagerPro.getInstance().getLogger().warning("更新跟随模式失败：" + e.getMessage());
+            return false;
+        }
+    }
     
     /**
      * 获取招募成本
@@ -332,6 +391,30 @@ public class VillagerManager {
         EcoChainManager.NewProfession newProfession =
                 EcoChainManager.getInstance().getNewProfession(profession);
         return newProfession == null ? profession : newProfession.getName();
+    }
+
+    public static void refreshEntityDisplayName(VillagerData villagerData) {
+        if (villagerData == null || !org.bukkit.Bukkit.isPrimaryThread()) return;
+        Villager entity = villagerData.getEntity();
+        if (entity == null || entity.isDead()) return;
+        String displayName = formatEntityDisplayName(
+                getProfessionDisplayName(villagerData.getProfession()),
+                villagerData.getId(), villagerData.getFollowMode());
+        if (!displayName.equals(entity.getCustomName())) {
+            entity.setCustomName(displayName);
+        }
+        if (!entity.isCustomNameVisible()) {
+            entity.setCustomNameVisible(true);
+        }
+    }
+
+    static String formatEntityDisplayName(String professionName, int villagerId, String mode) {
+        String modeDisplay = switch (mode == null ? "FREE" : mode) {
+            case "FOLLOW" -> "跟随";
+            case "STAY" -> "停留";
+            default -> "自由";
+        };
+        return "§a" + professionName + " §7(ID: " + villagerId + ") §8[" + modeDisplay + "]";
     }
     
     /**

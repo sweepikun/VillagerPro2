@@ -2,6 +2,8 @@ package cn.popcraft.villagerpro.events;
 
 import cn.popcraft.villagerpro.VillagerPro;
 import cn.popcraft.villagerpro.managers.FollowManager;
+import cn.popcraft.villagerpro.managers.DefenseManager;
+import cn.popcraft.villagerpro.managers.VisitorManager;
 import cn.popcraft.villagerpro.managers.VillagerManager;
 import cn.popcraft.villagerpro.models.VillagerData;
 import cn.popcraft.villagerpro.managers.PersonalityManager;
@@ -14,7 +16,9 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.entity.EntityDamageByEntityEvent;
 import org.bukkit.event.entity.EntityDeathEvent;
+import org.bukkit.event.entity.EntityTransformEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
+import org.bukkit.event.world.ChunkLoadEvent;
 import org.bukkit.inventory.EquipmentSlot;
 import org.bukkit.inventory.ItemStack;
 
@@ -50,10 +54,12 @@ public class VillagerListener implements Listener {
         
         ItemStack handItem = player.getInventory().getItemInMainHand();
         Material handType = handItem != null ? handItem.getType() : Material.AIR;
+        boolean personalityEnabled = PersonalityManager.isEnabled();
         
         if (player.isSneaking()) {
             // 潜行 + 手持礼物 = 送礼
-            if (handType == Material.CAKE || handType == Material.DANDELION) {
+            if (personalityEnabled
+                    && (handType == Material.CAKE || handType == Material.DANDELION)) {
                 if (PersonalityManager.getInstance().interactWithVillager(player, villagerData, "gift")) {
                     player.sendMessage("§a你送给 " + villagerData.getProfession() + " 一份礼物，忠诚度和心情提升了！");
                 } else {
@@ -64,7 +70,7 @@ public class VillagerListener implements Listener {
             }
             
             // 潜行 + 空手 = 赞扬
-            if (handType == Material.AIR) {
+            if (personalityEnabled && handType == Material.AIR) {
                 if (PersonalityManager.getInstance().interactWithVillager(player, villagerData, "praise")) {
                     player.sendMessage("§a你赞扬了 " + villagerData.getProfession() + "，心情提升了！");
                 }
@@ -73,7 +79,13 @@ public class VillagerListener implements Listener {
             }
             
             // 潜行 + 其他物品 = 切换跟随模式
-            FollowManager.toggleFollowMode(villagerData);
+            if (handType != Material.AIR) {
+                if (FollowManager.toggleFollowMode(villagerData)) {
+                    player.sendMessage("§a跟随模式已切换为: " + villagerData.getFollowMode());
+                } else {
+                    player.sendMessage("§c跟随模式保存失败，请重试");
+                }
+            }
             event.setCancelled(true);
         }
     }
@@ -92,12 +104,28 @@ public class VillagerListener implements Listener {
         // 检查是否是我们管理的村民
         VillagerData villagerData = VillagerManager.getVillager(entity.getUniqueId());
         if (villagerData != null) {
-            // 停止跟随任务
             FollowManager.stopFollowing(villagerData);
-            
-            // 从数据库中移除
+            if (automaticCleanupEnabled()) {
+                VillagerManager.removeVillager(villagerData.getId());
+            }
+        }
+    }
+
+    @EventHandler(ignoreCancelled = true)
+    public void onEntityTransform(EntityTransformEvent event) {
+        if (!(event.getEntity() instanceof Villager)
+                || event.getTransformedEntity() instanceof Villager) return;
+        VillagerData villagerData = VillagerManager.getVillager(event.getEntity().getUniqueId());
+        if (villagerData == null) return;
+        FollowManager.stopFollowing(villagerData);
+        if (automaticCleanupEnabled()) {
             VillagerManager.removeVillager(villagerData.getId());
         }
+    }
+
+    private static boolean automaticCleanupEnabled() {
+        return VillagerPro.getInstance().getConfig()
+                .getBoolean("compatibility.auto_cleanup_dead_villagers", true);
     }
     
     /**
@@ -128,11 +156,29 @@ public class VillagerListener implements Listener {
                     damager.sendMessage("§c你不能伤害其他村庄的村民！");
                 }
             } else if (event.getDamager() instanceof org.bukkit.entity.Monster) {
+                if (!PersonalityManager.isEnabled()) return;
                 org.bukkit.entity.Player owner = org.bukkit.Bukkit.getPlayer(village.getOwnerUUID());
                 if (owner != null) {
                     PersonalityManager.getInstance()
                             .interactWithVillager(owner, villagerData, "protect");
                 }
+            }
+        }
+    }
+
+    @EventHandler
+    public void onChunkLoad(ChunkLoadEvent event) {
+        for (Entity entity : event.getChunk().getEntities()) {
+            if (VillagerPro.getInstance().getConfig().getBoolean("features.defense", true)) {
+                DefenseManager.getInstance().restoreEntityState(entity);
+            }
+            if (VillagerPro.getInstance().getConfig().getBoolean("features.visitors", true)) {
+                VisitorManager.getInstance().restoreEntityState(entity);
+            }
+            if (!(entity instanceof Villager)) continue;
+            VillagerData villager = VillagerManager.getVillager(entity.getUniqueId());
+            if (villager != null) {
+                FollowManager.applyModeState(villager);
             }
         }
     }

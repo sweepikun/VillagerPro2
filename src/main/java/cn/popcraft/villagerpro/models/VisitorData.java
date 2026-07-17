@@ -1,13 +1,17 @@
 package cn.popcraft.villagerpro.models;
 
 import cn.popcraft.villagerpro.VillagerPro;
+import cn.popcraft.villagerpro.managers.VisitorManager;
 import net.md_5.bungee.api.chat.TextComponent;
 import org.bukkit.Location;
+import org.bukkit.NamespacedKey;
 import org.bukkit.World;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.EntityType;
 import org.bukkit.entity.LivingEntity;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Villager;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import java.sql.Timestamp;
@@ -18,6 +22,8 @@ import java.util.UUID;
  * 表示村庄中的临时访客（商人、旅行者、节日使者）
  */
 public class VisitorData {
+    private static final NamespacedKey VISITOR_ID_KEY =
+            new NamespacedKey(VillagerPro.getInstance(), "visitor_id");
     
     private int id;
     private int villageId;
@@ -41,8 +47,10 @@ public class VisitorData {
         this.location = location;
         this.name = name;
         this.displayName = displayName;
-        this.spawnedAt = spawnedAt;
-        this.expiresAt = expiresAt;
+        this.spawnedAt = spawnedAt == null
+                ? new Timestamp(System.currentTimeMillis()) : spawnedAt;
+        this.expiresAt = expiresAt == null
+                ? new Timestamp(System.currentTimeMillis()) : expiresAt;
         this.active = true;
         this.customData = customData;
     }
@@ -58,6 +66,9 @@ public class VisitorData {
             // 在位置生成村民实体
             entity = (LivingEntity) world.spawnEntity(location, EntityType.VILLAGER);
             entityUUID = entity.getUniqueId();
+            if (id > 0) {
+                entity.getPersistentDataContainer().set(VISITOR_ID_KEY, PersistentDataType.INTEGER, id);
+            }
             
             // 设置村民名称和交易
             if (entity instanceof Villager) {
@@ -77,6 +88,28 @@ public class VisitorData {
             VillagerPro.getInstance().getLogger().warning("生成访客实体失败: " + e.getMessage());
             return false;
         }
+    }
+
+    public void bindExistingEntity(LivingEntity existingEntity) {
+        entity = existingEntity;
+        entityUUID = existingEntity.getUniqueId();
+        active = true;
+        if (id > 0) {
+            existingEntity.getPersistentDataContainer().set(VISITOR_ID_KEY,
+                    PersistentDataType.INTEGER, id);
+        }
+        if (existingEntity instanceof Villager villager) {
+            villager.setCustomName(displayName);
+            villager.setCustomNameVisible(true);
+            villager.setCanPickupItems(false);
+            villager.setCollidable(false);
+            villager.setInvulnerable(true);
+            setVillagerProfession(villager);
+        }
+    }
+
+    public static Integer getPersistentVisitorId(Entity entity) {
+        return entity.getPersistentDataContainer().get(VISITOR_ID_KEY, PersistentDataType.INTEGER);
     }
     
     /**
@@ -125,7 +158,7 @@ public class VisitorData {
             @Override
             public void run() {
                 if (isExpired()) {
-                    removeEntity();
+                    VisitorManager.getInstance().removeVisitor(id);
                     this.cancel();
                 }
             }
@@ -217,7 +250,8 @@ public class VisitorData {
     }
     
     public void setExpiresAt(Timestamp expiresAt) {
-        this.expiresAt = expiresAt;
+        this.expiresAt = expiresAt == null
+                ? new Timestamp(System.currentTimeMillis()) : expiresAt;
     }
     
     public boolean isActive() {

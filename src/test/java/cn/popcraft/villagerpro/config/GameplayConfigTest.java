@@ -39,6 +39,36 @@ class GameplayConfigTest {
             }
             assertNotNull(Material.getMaterial(config.getString(path + ".icon")),
                     profession + " has an invalid icon");
+            double probability = config.getDouble(path + ".probability");
+            assertTrue(probability >= 0.0 && probability <= 1.0,
+                    profession + " probability must be between 0 and 1");
+        }
+    }
+
+    @Test
+    void villageGrowthHasACompletePaidProgression() {
+        int maxLevel = config.getInt("village.max_level");
+        assertTrue(maxLevel > 1);
+        assertTrue(config.getInt("village.base_exp_per_level") > 0);
+        List<Map<?, ?>> levels = config.getMapList("village.upgrade_costs");
+        assertTrue(levels.size() >= maxLevel - 1);
+        for (int level = 1; level < maxLevel; level++) {
+            Object costsObject = levels.get(level - 1).get("costs");
+            assertTrue(costsObject instanceof List<?> && !((List<?>) costsObject).isEmpty(),
+                    "village level " + level + " has no upgrade cost");
+            for (Object costObject : (List<?>) costsObject) {
+                assertTrue(costObject instanceof Map<?, ?>);
+                Map<?, ?> cost = (Map<?, ?>) costObject;
+                assertTrue(cost.get("amount") instanceof Number
+                        && ((Number) cost.get("amount")).doubleValue() > 0);
+                String type = String.valueOf(cost.get("type")).toLowerCase();
+                assertTrue(List.of("vault", "playerpoints", "item", "itemsadder").contains(type));
+                if ("item".equals(type)) {
+                    assertNotNull(Material.getMaterial(String.valueOf(cost.get("item"))));
+                } else if ("itemsadder".equals(type)) {
+                    assertTrue(String.valueOf(cost.get("item")).contains(":"));
+                }
+            }
         }
     }
 
@@ -84,6 +114,43 @@ class GameplayConfigTest {
             validateCosts(config.getMapList("decorations.items." + key + ".cost"));
         }
         validateCosts(config.getMapList("defense.guard.cost"));
+    }
+
+    @Test
+    void decorationEffectsDeclareTheirRuntimeToggle() {
+        for (String type : List.of("street_light", "flower_bed", "bench")) {
+            assertTrue(config.getBoolean("decorations.items." + type + "."
+                    + switch (type) {
+                        case "street_light" -> "world_interaction";
+                        case "flower_bed" -> "villager_interaction";
+                        default -> "villager_sit";
+                    }), type + " must explicitly declare its runtime effect");
+        }
+    }
+
+    @Test
+    void defenseSettingsHaveBoundedAndUsableValues() {
+        assertTrue(config.getInt("defense.guard.duration_minutes") > 0);
+        assertTrue(config.getInt("defense.guard.max_active_per_village") > 0);
+        assertTrue(config.getDouble("defense.guard.max_health") > 0);
+        assertTrue(config.getDouble("defense.guard.attack_damage") >= 0);
+        assertTrue(config.getDouble("defense.guard.movement_speed") > 0);
+        double reduction = config.getDouble("defense.protection.damage_reduction");
+        assertTrue(reduction >= 0 && reduction <= 1);
+    }
+
+    @Test
+    void personalityUsesBoundedProductionBenefits() {
+        assertTrue(config.getBoolean("features.personality"));
+        assertTrue(config.getBoolean("personality.enabled"));
+        for (String value : List.of("loyalty_threshold", "mood_threshold")) {
+            assertTrue(config.getInt("personality.production." + value) >= 0
+                    && config.getInt("personality.production." + value) <= 100);
+        }
+        for (String value : List.of("loyalty_bonus", "mood_bonus")) {
+            assertTrue(config.getDouble("personality.production." + value) >= 0
+                    && config.getDouble("personality.production." + value) <= .25);
+        }
     }
 
     @Test
@@ -156,6 +223,11 @@ class GameplayConfigTest {
     void unfinishedLegacyModuleStaysDisabledByDefault() {
         assertFalse(config.getBoolean("features.legacy"));
         assertFalse(config.getBoolean("legacy.enabled"));
+    }
+
+    @Test
+    void managedVillagerLifecycleCleanupIsEnabledByDefault() {
+        assertTrue(config.getBoolean("compatibility.auto_cleanup_dead_villagers"));
     }
 
     @Test
@@ -268,6 +340,15 @@ class GameplayConfigTest {
                         branch + " has no runtime effects");
                 String rareItem = config.getString(path + ".effects.rare_item");
                 if (rareItem != null) assertNotNull(Material.getMaterial(rareItem));
+                ConfigurationSection effects = config.getConfigurationSection(path + ".effects");
+                assertNotNull(effects);
+                for (String effect : effects.getKeys(false)) {
+                    if (effect.contains("chance")) {
+                        double chance = effects.getDouble(effect);
+                        assertTrue(chance >= 0.0 && chance <= 1.0,
+                                branch + " has an out-of-range " + effect);
+                    }
+                }
             }
         }
 
@@ -292,6 +373,16 @@ class GameplayConfigTest {
             }
             assertTrue(config.getDouble("needs.supplies." + supply + ".restore") > 0);
         }
+        assertTrue(config.getDouble("needs.decay.hunger_per_hour") >= 0);
+        assertTrue(config.getDouble("needs.decay.comfort_per_hour") >= 0);
+        assertTrue(config.getDouble("needs.decay.health_per_hour") >= 0);
+        double excellent = config.getDouble("needs.efficiency.excellent_threshold");
+        double poor = config.getDouble("needs.efficiency.poor_threshold");
+        double critical = config.getDouble("needs.efficiency.critical_threshold");
+        assertTrue(excellent >= poor && poor >= critical && critical >= 0);
+        assertTrue(excellent <= 100);
+        assertTrue(config.getDouble("needs.auto_consume_threshold") >= 0
+                && config.getDouble("needs.auto_consume_threshold") <= 100);
     }
 
     @Test
@@ -304,12 +395,21 @@ class GameplayConfigTest {
             String path = "buildings.types." + type;
             assertNotNull(types.getConfigurationSection(type));
             assertNotNull(Material.getMaterial(config.getString(path + ".core")));
+            java.util.Map<String, Integer> previousLevel = new java.util.HashMap<>();
             for (int level = 1; level <= config.getInt("buildings.max_level"); level++) {
                 ConfigurationSection requirements = config.getConfigurationSection(
                         path + ".levels." + level);
                 assertNotNull(requirements, type + " level " + level + " has no structural requirements");
-                assertTrue(requirements.getKeys(false).stream()
-                        .allMatch(key -> requirements.getInt(key) > 0));
+                for (String metric : requirements.getKeys(false)) {
+                    assertTrue(List.of("barrels", "planks", "furnaces", "anvils", "beds",
+                                    "brewing_stands", "bookshelves", "roof_columns").contains(metric),
+                            type + " has unsupported detection metric " + metric);
+                    int required = requirements.getInt(metric);
+                    assertTrue(required > 0, type + " has non-positive " + metric + " requirement");
+                    assertTrue(required >= previousLevel.getOrDefault(metric, 0),
+                            type + " level " + level + " reduces its " + metric + " requirement");
+                    previousLevel.put(metric, required);
+                }
             }
         }
         assertTrue(config.getInt("buildings.types.granary.capacity_per_level") > 0);
@@ -405,9 +505,16 @@ class GameplayConfigTest {
             assertTrue(config.getDouble("market.items." + returnItem + ".base_price") > 0);
             assertTrue(config.getLong(path + ".duration_minutes") > 0);
             assertTrue(config.getDouble(path + ".risk_chance") > 0);
+            assertTrue(config.getDouble(path + ".risk_chance") <= 1);
             assertTrue(config.getDouble(path + ".return_value_multiplier") > 0);
             assertTrue(config.getDouble(path + ".return_value_multiplier") < 1);
         }
+    }
+
+    @Test
+    void visitorSpawnProbabilityIsBounded() {
+        double probability = config.getDouble("visitors.spawn_probability");
+        assertTrue(probability >= 0.0 && probability <= 1.0);
     }
 
     private static void assertIconsValid(ConfigurationSection section) {

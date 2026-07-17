@@ -60,6 +60,7 @@ class DatabaseDialectTest {
         assertTrue(statements.stream().allMatch(sql -> !sql.contains("INDEX IF NOT EXISTS")));
         assertTrue(statements.stream().anyMatch(sql -> sql.contains("created_at_ms BIGINT")));
         assertTrue(statements.stream().anyMatch(sql -> sql.contains("visitor_shop_sales")));
+        assertTrue(statements.stream().anyMatch(sql -> sql.contains("active_guards")));
     }
 
     @Test
@@ -91,6 +92,27 @@ class DatabaseDialectTest {
                 .contains("ON CONFLICT(id) DO UPDATE SET value = excluded.value"));
         assertTrue(DatabaseDialect.MYSQL.upsert(insert, new String[]{"id"}, "value")
                 .contains("ON DUPLICATE KEY UPDATE value = VALUES(value)"));
+    }
+
+    @Test
+    void mysqlPersonalityMigrationUsesEpochMillisecondStorage() throws Exception {
+        List<String> statements = new ArrayList<>();
+        Statement recorder = (Statement) Proxy.newProxyInstance(
+                getClass().getClassLoader(), new Class<?>[]{Statement.class}, (proxy, method, args) -> {
+                    if ("execute".equals(method.getName())) {
+                        statements.add((String) args[0]);
+                        return false;
+                    }
+                    throw new UnsupportedOperationException(method.getName());
+                });
+
+        DatabaseManager.migratePersonalityInteractionColumn(
+                new SchemaStatement(recorder, DatabaseDialect.MYSQL), DatabaseDialect.MYSQL);
+
+        assertTrue(statements.stream().anyMatch(sql -> sql.contains(
+                "MODIFY COLUMN last_interaction BIGINT NOT NULL DEFAULT 0")));
+        assertTrue(statements.stream().anyMatch(sql -> sql.contains(
+                "last_interaction > 4102444800000")));
     }
 
     private static void executeWarehouseUpsert(Connection connection, String sql, int amount) throws Exception {

@@ -21,72 +21,57 @@ public class FollowManager {
      * 切换村民跟随模式
      * @param villagerData 村民数据
      */
-    public static void toggleFollowMode(VillagerData villagerData) {
+    public static boolean toggleFollowMode(VillagerData villagerData) {
         String currentMode = villagerData.getFollowMode();
-        String newMode;
-        
-        switch (currentMode) {
-            case "FREE":
-                newMode = "FOLLOW";
+        String newMode = nextMode(currentMode);
+        if (!VillagerManager.updateFollowMode(villagerData, currentMode, newMode)) return false;
+        applyModeState(villagerData);
+        return true;
+    }
+
+    static String nextMode(String currentMode) {
+        return switch (currentMode == null ? "FREE" : currentMode) {
+            case "FREE" -> "FOLLOW";
+            case "FOLLOW" -> "STAY";
+            case "STAY" -> "FREE";
+            default -> "FREE";
+        };
+    }
+
+    public static void applyModeState(VillagerData villagerData) {
+        if (villagerData == null || !Bukkit.isPrimaryThread()) return;
+        Villager villager = villagerData.getEntity();
+        if (villager == null || villager.isDead()) return;
+        switch (villagerData.getFollowMode()) {
+            case "FOLLOW" -> {
+                villager.setAI(true);
                 startFollowing(villagerData);
-                break;
-            case "FOLLOW":
-                newMode = "STAY";
+            }
+            case "STAY" -> {
                 stopFollowing(villagerData);
-                break;
-            case "STAY":
-                newMode = "FREE";
-                break;
-            default:
-                newMode = "FREE";
-                break;
+                villager.setAI(false);
+            }
+            default -> {
+                stopFollowing(villagerData);
+                villager.setAI(true);
+            }
         }
-        
-        villagerData.setFollowMode(newMode);
-        
-        // 异步更新数据库
-        Bukkit.getScheduler().runTaskAsynchronously(VillagerPro.getInstance(), () -> {
-            VillagerManager.updateVillager(villagerData);
-        });
-        
-        // 更新村民的自定义名称以显示跟随模式
-        updateVillagerDisplayName(villagerData, newMode);
-        
-        // 如果切换到跟随模式，立即开始跟随
-        if ("FOLLOW".equals(newMode)) {
-            startFollowing(villagerData);
+        VillagerManager.refreshEntityDisplayName(villagerData);
+    }
+
+    public static void restoreLoadedModes() {
+        for (VillagerData villager : VillagerManager.getAllVillagers()) {
+            applyModeState(villager);
         }
     }
-    
-    /**
-     * 更新村民显示名称
-     * @param villagerData 村民数据
-     * @param mode 跟随模式
-     */
-    private static void updateVillagerDisplayName(VillagerData villagerData, String mode) {
+
+    public static void releaseModeState(VillagerData villagerData) {
+        if (villagerData == null || !Bukkit.isPrimaryThread()) return;
+        stopFollowing(villagerData);
         Villager villager = villagerData.getEntity();
         if (villager != null && !villager.isDead()) {
-            String professionName = VillagerManager.getProfessionDisplayName(villagerData.getProfession());
-            String modeDisplay = getModeDisplayName(mode);
-            villager.setCustomName("§a" + professionName + " §7[" + modeDisplay + "]");
-            villager.setCustomNameVisible(true);
-        }
-    }
-    
-    /**
-     * 获取跟随模式显示名称
-     * @param mode 模式代码
-     * @return 显示名称
-     */
-    private static String getModeDisplayName(String mode) {
-        switch (mode) {
-            case "FOLLOW":
-                return "跟随";
-            case "STAY":
-                return "停留";
-            case "FREE":
-            default:
-                return "自由";
+            villager.setTarget(null);
+            villager.setAI(true);
         }
     }
     
@@ -211,6 +196,13 @@ public class FollowManager {
             }
         }
         followTasks.clear();
+        for (VillagerData villagerData : VillagerManager.getAllVillagers()) {
+            Villager villager = villagerData.getEntity();
+            if (villager != null && !villager.isDead()) {
+                villager.setTarget(null);
+                villager.setAI(true);
+            }
+        }
     }
     
     /**

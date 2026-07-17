@@ -229,7 +229,8 @@ public final class CrisisManager {
                 next = storedNext;
             }
             if (next > now) continue;
-            double chance = Math.max(0, Math.min(1, config("crises.trigger_chance_per_roll", 0.25)));
+            double chance = GameplayMath.clampProbability(
+                    config("crises.trigger_chance_per_roll", 0.25));
             if (ThreadLocalRandom.current().nextDouble() < chance) {
                 CrisisType[] values = CrisisType.values();
                 startCrisis(village, values[ThreadLocalRandom.current().nextInt(values.length)], null);
@@ -272,8 +273,7 @@ public final class CrisisManager {
         long next = System.currentTimeMillis() + hours("crises.roll_interval_hours", 12);
         int reward = Math.max(0, VillagerPro.getInstance().getConfig()
                 .getInt("crises.resolution_prosperity_reward", 10));
-        int nextProsperity = village.getProsperity() + reward;
-        if (!settleCrisis(village, crisis, next, nextProsperity)) {
+        if (!settleCrisis(village, crisis, next, reward)) {
             player.sendMessage("§c危机进度已完成，但原子结算失败；状态和繁荣度均未改变，请重试");
             return;
         }
@@ -291,25 +291,25 @@ public final class CrisisManager {
         }
         int penalty = Math.max(0, VillagerPro.getInstance().getConfig()
                 .getInt("crises.failure_prosperity_penalty", 15));
-        int nextProsperity = Math.max(0, village.getProsperity() - penalty);
-        if (!settleCrisis(village, crisis, next, nextProsperity)) return;
+        if (!settleCrisis(village, crisis, next, -penalty)) return;
         Player owner = VillagerPro.getInstance().getServer().getPlayer(village.getOwnerUUID());
         if (owner != null) owner.sendMessage("§c“" + crisis.type().getDisplayName()
                 + "”未能及时处理，村庄损失 " + penalty + " 繁荣度");
     }
 
     private static boolean settleCrisis(Village village, ActiveCrisis crisis,
-                                        long nextRoll, int nextProsperity) {
+                                        long nextRoll, int prosperityDelta) {
         try (Connection connection = DatabaseManager.getConnection()) {
-            if (!OperationTransactions.settleCrisis(connection, village.getId(),
-                    crisis.type().getId(), nextRoll, nextProsperity)) {
+            OperationTransactions.CrisisSettlement settlement = OperationTransactions.settleCrisis(
+                    connection, village.getId(), crisis.type().getId(), nextRoll, prosperityDelta);
+            if (!settlement.settled()) {
                 return false;
             }
+            village.setProsperity(settlement.prosperity());
         } catch (SQLException exception) {
             logFailure("结算村庄危机", exception);
             return false;
         }
-        village.setProsperity(nextProsperity);
         ACTIVE.remove(village.getId());
         NEXT_ROLL.put(village.getId(), nextRoll);
         return true;

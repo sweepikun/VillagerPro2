@@ -21,32 +21,51 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 
 public final class WorkstationManager {
     private static final Map<UUID, Integer> pendingBindings = new ConcurrentHashMap<>();
+    private static final Map<Integer, Optional<VillagerWorkstation>> WORKSTATIONS =
+            new ConcurrentHashMap<>();
 
     private WorkstationManager() {
     }
 
     public static VillagerWorkstation getWorkstation(int villagerId) {
+        Optional<VillagerWorkstation> cached = WORKSTATIONS.get(villagerId);
+        if (cached != null) return cached.orElse(null);
+        boolean loaded = false;
         String sql = "SELECT villager_id, world, block_x, block_y, block_z, material, level " +
                 "FROM villager_workstations WHERE villager_id = ?";
         try (Connection connection = DatabaseManager.getConnection();
              PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setInt(1, villagerId);
             ResultSet resultSet = statement.executeQuery();
+            loaded = true;
             if (resultSet.next()) {
-                return new VillagerWorkstation(resultSet.getInt("villager_id"),
+                VillagerWorkstation workstation = new VillagerWorkstation(resultSet.getInt("villager_id"),
                         resultSet.getString("world"), resultSet.getInt("block_x"),
                         resultSet.getInt("block_y"), resultSet.getInt("block_z"),
                         resultSet.getString("material"), resultSet.getInt("level"));
+                WORKSTATIONS.put(villagerId, Optional.of(workstation));
+                return workstation;
             }
         } catch (SQLException e) {
             logFailure("读取工作站", e);
         }
+        if (loaded) WORKSTATIONS.put(villagerId, Optional.empty());
         return null;
+    }
+
+    public static void removeWorkstationCache(int villagerId) {
+        WORKSTATIONS.remove(villagerId);
+    }
+
+    public static void shutdown() {
+        pendingBindings.clear();
+        WORKSTATIONS.clear();
     }
 
     public static void beginBinding(Player player, VillagerData villager) {
@@ -111,6 +130,7 @@ public final class WorkstationManager {
             statement.setInt(7, level);
             if (statement.executeUpdate() > 0) {
                 pendingBindings.remove(player.getUniqueId());
+                WORKSTATIONS.remove(villagerId);
                 player.sendMessage("§a已绑定工作站 " + block.getType().name()
                         + " @ " + block.getX() + ", " + block.getY() + ", " + block.getZ());
                 return true;
@@ -189,6 +209,7 @@ public final class WorkstationManager {
             statement.setInt(2, villager.getId());
             statement.setInt(3, workstation.getLevel());
             if (statement.executeUpdate() == 1) {
+                WORKSTATIONS.remove(villager.getId());
                 player.sendMessage("§a工作站已升级至 " + nextLevel + " 级");
                 return true;
             }

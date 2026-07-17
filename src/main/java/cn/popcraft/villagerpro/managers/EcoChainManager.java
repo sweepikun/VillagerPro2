@@ -250,7 +250,8 @@ public class EcoChainManager {
                             + SpecializationManager.getEffect(villager, "chain_efficiency")
                             + getUpstreamSpecializationEffect(village.getId(),
                             villager.getProfession(), "chain_efficiency"),
-                    NeedsManager.getProductionMultiplier(villager));
+                    NeedsManager.getProductionMultiplier(villager)
+                            * PersonalityManager.getInstance().getProductionMultiplier(villager));
             int successfulBatches = 0;
             for (int batch = 0; batch < possibleBatches; batch++) {
                 if (ThreadLocalRandom.current().nextDouble() < efficiency) successfulBatches++;
@@ -268,6 +269,7 @@ public class EcoChainManager {
             Map<String, Integer> produced = multiplyAmounts(recipe.outputs(), successfulBatches,
                     processorLevelMultiplier
                             * BuildingManager.getProductionMultiplier(village.getId())
+                            * PersonalityManager.getInstance().getProductionMultiplier(villager)
                             * PolicyManager.getProductionMultiplier(village.getId())
                             * CrisisManager.getProductionMultiplier(village.getId())
                             * cn.popcraft.villagerpro.gui.VisitorGUIManager
@@ -277,16 +279,17 @@ public class EcoChainManager {
                 reserves.put(input, WarehouseManager.getProtectedReserveAmount(
                         village.getId(), input));
             }
-            int consumedTotal = consumed.values().stream().mapToInt(Integer::intValue).sum();
             int producedTotal = produced.values().stream().mapToInt(Integer::intValue).sum();
-            int currentStorage = WarehouseManager.getCurrentStorage(village.getId());
-            if (currentStorage - consumedTotal + producedTotal > village.getWarehouseCapacity()) {
-                return new ProcessingResult(true, false, "WAREHOUSE_FULL", primaryOutput,
-                        producedTotal, 0, recipe.name() + "等待仓库空间");
-            }
 
             try {
-                if (!applyStoredRecipe(village.getId(), consumed, produced, reserves)) {
+                StoredRecipeTransaction.Result result = applyStoredRecipe(
+                        village.getId(), consumed, produced, reserves,
+                        village.getWarehouseCapacity());
+                if (result == StoredRecipeTransaction.Result.WAREHOUSE_FULL) {
+                    return new ProcessingResult(true, false, "WAREHOUSE_FULL", primaryOutput,
+                            producedTotal, 0, recipe.name() + "等待仓库空间");
+                }
+                if (result != StoredRecipeTransaction.Result.SUCCESS) {
                     return new ProcessingResult(true, false, "MISSING_INPUT", primaryOutput,
                             producedTotal, 0, recipe.name() + "原料在加工前发生变化");
                 }
@@ -337,12 +340,13 @@ public class EcoChainManager {
         return result;
     }
 
-    private boolean applyStoredRecipe(int villageId, Map<String, Integer> consumed,
-                                      Map<String, Integer> produced,
-                                      Map<String, Integer> reserves) throws SQLException {
+    private StoredRecipeTransaction.Result applyStoredRecipe(
+            int villageId, Map<String, Integer> consumed,
+            Map<String, Integer> produced, Map<String, Integer> reserves,
+            int warehouseCapacity) throws SQLException {
         try (Connection connection = DatabaseManager.getConnection()) {
             return StoredRecipeTransaction.apply(connection, DatabaseManager.getDialect(),
-                    villageId, consumed, produced, reserves);
+                    villageId, consumed, produced, reserves, warehouseCapacity);
         }
     }
 
@@ -427,7 +431,9 @@ public class EcoChainManager {
                         SpecializationManager.getEffect(villager, "chain_efficiency")
                                 + Math.max(0, WorkstationManager.getProductionMultiplier(
                                 consumerVillager) - 1.0),
-                        NeedsManager.getProductionMultiplier(consumerVillager));
+                        NeedsManager.getProductionMultiplier(consumerVillager)
+                                * PersonalityManager.getInstance()
+                                .getProductionMultiplier(consumerVillager));
                 int successfulConversions = 0;
                 for (int i = 0; i < possibleConversions; i++) {
                     if (java.util.concurrent.ThreadLocalRandom.current().nextDouble() < efficiency) {
@@ -445,6 +451,10 @@ public class EcoChainManager {
                     ItemStack consumerOutput = createConsumerOutput(
                             consumerStep, successfulConversions);
                     if (consumerOutput != null) {
+                        consumerOutput.setAmount(GameplayMath.applyExpectedMultiplier(
+                                consumerOutput.getAmount(), PersonalityManager.getInstance()
+                                        .getProductionMultiplier(consumerVillager),
+                                ThreadLocalRandom.current().nextDouble()));
                         newOutput.add(consumerOutput);
                     }
                 }

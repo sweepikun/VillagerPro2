@@ -131,6 +131,9 @@ public final class VillageOperationsGUI {
             lore.add("§7生活需求效率: §f" + String.format("%.0f%%",
                     cn.popcraft.villagerpro.managers.NeedsManager
                             .getProductionMultiplier(villager) * 100));
+            lore.add("§7个性效率: §f" + String.format("%.0f%%",
+                    cn.popcraft.villagerpro.managers.PersonalityManager.getInstance()
+                            .getProductionMultiplier(villager) * 100));
             lore.add("§7当前状态: §f" + ProductionStatsManager.getDiagnostic(villager.getId()));
             lore.add("§7最近结果: §f" + ProductionStatsManager.getLastOutcome(villager.getId()));
             if (summary.getLastEventAt() > 0) {

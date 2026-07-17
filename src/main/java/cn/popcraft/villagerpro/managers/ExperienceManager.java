@@ -60,7 +60,7 @@ public class ExperienceManager {
      * 检查村庄是否升级
      * @param village 村庄
      */
-    private static void checkVillageLevelUp(Village village) {
+    public static void checkVillageLevelUp(Village village) {
         int maxLevel = VillagerPro.getInstance().getConfig().getInt("village.max_level", 5);
         int baseExp = VillagerPro.getInstance().getConfig().getInt("village.base_exp_per_level", 200);
         while (village.getLevel() < maxLevel) {
@@ -85,7 +85,7 @@ public class ExperienceManager {
             }
 
             sendVillageLevelUpMessage(village);
-            if (VillagerPro.getInstance().getConfig().getBoolean("features.personality", true)) {
+            if (PersonalityManager.isEnabled()) {
                 PersonalityManager.getInstance().rewardVillageLevelUp(village);
             }
         }

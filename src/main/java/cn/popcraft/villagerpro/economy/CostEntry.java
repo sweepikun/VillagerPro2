@@ -60,6 +60,13 @@ public class CostEntry {
         if (!Double.isFinite(amount) || amount <= 0) {
             return false;
         }
+
+        if (("playerpoints".equalsIgnoreCase(type)
+                || "itemsadder".equalsIgnoreCase(type)
+                || "item".equalsIgnoreCase(type))
+                && (amount != Math.rint(amount) || amount > Integer.MAX_VALUE)) {
+            return false;
+        }
         
         // 对于itemsadder类型，检查物品ID是否有效
         if ("itemsadder".equalsIgnoreCase(type) || "item".equalsIgnoreCase(type)) {
@@ -85,6 +92,9 @@ public class CostEntry {
             String item = ("itemsadder".equals(type) || "item".equals(type)) ? cost.getItem() : null;
             String key = type + "\u0000" + (item == null ? "" : item);
             totals.merge(key, cost.getAmount(), Double::sum);
+            if (!Double.isFinite(totals.get(key))) {
+                return null;
+            }
             items.put(key, item);
         }
 

@@ -18,26 +18,47 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 
 public final class SpecializationManager {
+    private static final Map<Integer, Optional<VillagerSpecialization>> SPECIALIZATIONS =
+            new ConcurrentHashMap<>();
+
     private SpecializationManager() {
     }
 
     public static VillagerSpecialization getSpecialization(int villagerId) {
+        Optional<VillagerSpecialization> cached = SPECIALIZATIONS.get(villagerId);
+        if (cached != null) return cached.orElse(null);
+        boolean loaded = false;
         try (Connection connection = DatabaseManager.getConnection();
              PreparedStatement statement = connection.prepareStatement(
                      "SELECT villager_id, branch_id, level FROM villager_specializations " +
                              "WHERE villager_id = ?")) {
             statement.setInt(1, villagerId);
             ResultSet resultSet = statement.executeQuery();
+            loaded = true;
             if (resultSet.next()) {
-                return new VillagerSpecialization(resultSet.getInt("villager_id"),
+                VillagerSpecialization specialization = new VillagerSpecialization(resultSet.getInt("villager_id"),
                         resultSet.getString("branch_id"), resultSet.getInt("level"));
+                SPECIALIZATIONS.put(villagerId, Optional.of(specialization));
+                return specialization;
             }
         } catch (SQLException e) {
             logFailure("读取职业专精", e);
         }
+        if (loaded) SPECIALIZATIONS.put(villagerId, Optional.empty());
         return null;
+    }
+
+    public static void removeSpecializationCache(int villagerId) {
+        SPECIALIZATIONS.remove(villagerId);
+    }
+
+    public static void shutdown() {
+        SPECIALIZATIONS.clear();
     }
 
     public static List<String> getBranchIds(String profession) {
@@ -126,6 +147,8 @@ public final class SpecializationManager {
             if (OperationTransactions.upgradeSpecialization(connection,
                     DatabaseManager.getDialect(), villager.getId(), branchId,
                     nextLevel - 1, getMaxLevel())) {
+                SPECIALIZATIONS.put(villager.getId(), Optional.of(new VillagerSpecialization(
+                        villager.getId(), branchId, nextLevel)));
                 player.sendMessage("§a专精已提升为 " + getBranchName(
                         villager.getProfession(), branchId) + " " + nextLevel + "级");
                 return true;
@@ -155,6 +178,7 @@ public final class SpecializationManager {
         try (Connection connection = DatabaseManager.getConnection()) {
             if (OperationTransactions.removeSpecialization(connection, villager.getId(),
                     current.getBranchId(), current.getLevel())) {
+                SPECIALIZATIONS.put(villager.getId(), Optional.empty());
                 player.sendMessage("§a专精已经重置，可以重新选择分支");
                 return true;
             }

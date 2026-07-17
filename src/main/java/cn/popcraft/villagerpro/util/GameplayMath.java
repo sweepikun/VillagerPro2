@@ -10,9 +10,11 @@ public final class GameplayMath {
 
     public static int productionAmount(int baseAmount, int villagerLevel,
                                        int amountPerExtraLevel, int skillBonus) {
-        return Math.max(1, baseAmount
-                + Math.max(0, villagerLevel - 1) * Math.max(0, amountPerExtraLevel)
-                + Math.max(0, skillBonus));
+        long extraLevels = Math.max(0L, (long) villagerLevel - 1L);
+        long amount = Math.max(0L, (long) baseAmount)
+                + extraLevels * Math.max(0L, (long) amountPerExtraLevel)
+                + Math.max(0L, (long) skillBonus);
+        return (int) Math.max(1L, Math.min(Integer.MAX_VALUE, amount));
     }
 
     public static int applyPercentageBoost(int amount, double bonusPerLevel, int level) {
@@ -27,7 +29,15 @@ public final class GameplayMath {
         if (!Double.isFinite(value) || value <= 0.0) {
             return 0.0;
         }
-        return value > 1.0 ? value / 100.0 : value;
+        double normalized = value > 1.0 ? value / 100.0 : value;
+        return Double.isFinite(normalized) ? Math.min(1.0, normalized) : 0.0;
+    }
+
+    public static double clampProbability(double probability) {
+        if (!Double.isFinite(probability)) {
+            return 0.0;
+        }
+        return Math.max(0.0, Math.min(1.0, probability));
     }
 
     public static long workIntervalMillis(long baseIntervalTicks,
@@ -46,6 +56,19 @@ public final class GameplayMath {
 
     public static int storableAmount(int requested, int capacity, int currentStorage) {
         return Math.min(Math.max(0, requested), Math.max(0, capacity - currentStorage));
+    }
+
+    public static double damageAfterReduction(double damage, double reduction) {
+        if (!Double.isFinite(damage) || damage <= 0) return 0;
+        double safeReduction = Double.isFinite(reduction)
+                ? Math.max(0, Math.min(1, reduction)) : 0;
+        return damage * (1 - safeReduction);
+    }
+
+    public static boolean isShelterTime(long worldTime, int triggerWorldTime) {
+        long normalizedTime = Math.floorMod(worldTime, 24_000L);
+        int normalizedTrigger = Math.floorMod(triggerWorldTime, 24_000);
+        return normalizedTime >= normalizedTrigger;
     }
 
     public static int completeRecipes(int inputAmount, int inputPerRecipe) {
@@ -84,8 +107,11 @@ public final class GameplayMath {
     }
 
     public static double caravanRisk(double baseRisk, int villageLevel, double reductionPerLevel) {
-        double reduced = baseRisk - Math.max(0, villageLevel - 1) * Math.max(0, reductionPerLevel);
-        return Math.max(0, Math.min(0.95, reduced));
+        double safeBaseRisk = clampProbability(baseRisk);
+        double safeReduction = Double.isFinite(reductionPerLevel)
+                ? Math.max(0, reductionPerLevel) : 0;
+        double reduced = safeBaseRisk - Math.max(0, villageLevel - 1) * safeReduction;
+        return Math.min(0.95, clampProbability(reduced));
     }
 
     public static int scaleByVillageLevel(int baseValue, int perLevel, int villageLevel) {
@@ -93,7 +119,9 @@ public final class GameplayMath {
     }
 
     public static int applyExpectedMultiplier(int amount, double multiplier, double randomUnit) {
-        double exact = Math.max(0, amount) * Math.max(0, multiplier);
+        double safeMultiplier = Double.isFinite(multiplier) ? Math.max(0, multiplier) : 0;
+        double exact = Math.max(0, amount) * safeMultiplier;
+        if (exact >= Integer.MAX_VALUE) return Integer.MAX_VALUE;
         int result = (int) Math.floor(exact);
         if (Math.max(0, Math.min(1, randomUnit)) < exact - result) result++;
         return Math.max(1, result);
@@ -107,6 +135,23 @@ public final class GameplayMath {
         if (lowestNeed < criticalThreshold) return Math.max(0.1, 1.0 - criticalPenalty);
         if (lowestNeed < poorThreshold) return Math.max(0.1, 1.0 - poorPenalty);
         return 1.0;
+    }
+
+    public static double personalityProductionMultiplier(int loyalty, int mood,
+                                                         int loyaltyThreshold, double loyaltyBonus,
+                                                         int moodThreshold, double moodBonus) {
+        double multiplier = 1.0;
+        if (Math.max(0, loyalty) >= Math.max(0, loyaltyThreshold)) {
+            multiplier += finiteNonNegative(loyaltyBonus);
+        }
+        if (Math.max(0, mood) >= Math.max(0, moodThreshold)) {
+            multiplier += finiteNonNegative(moodBonus);
+        }
+        return multiplier;
+    }
+
+    private static double finiteNonNegative(double value) {
+        return Double.isFinite(value) ? Math.max(0, value) : 0;
     }
 
     public static double levelMultiplier(int level, double bonusPerExtraLevel) {

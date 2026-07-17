@@ -16,6 +16,7 @@ import cn.popcraft.villagerpro.managers.WorkstationManager;
 import cn.popcraft.villagerpro.managers.BuildingManager;
 import cn.popcraft.villagerpro.managers.PolicyManager;
 import cn.popcraft.villagerpro.managers.CrisisManager;
+import cn.popcraft.villagerpro.managers.PersonalityManager;
 import cn.popcraft.villagerpro.models.Village;
 import cn.popcraft.villagerpro.models.VillagerData;
 import cn.popcraft.villagerpro.util.GameplayMath;
@@ -66,6 +67,7 @@ public class WorkScheduler {
      * 初始化所有村民的下次产出时间
      */
     private static void initializeWorkTimes() {
+        nextWorkTime.clear();
         for (Village village : VillageManager.getAllVillages()) {
             List<VillagerData> villagers = VillagerManager.getVillagers(village.getId());
             for (VillagerData villager : villagers) {
@@ -231,7 +233,8 @@ public class WorkScheduler {
         int baseAmount = VillagerPro.getInstance().getConfig().getInt(path + ".base_amount", 1);
         
         // 获取概率
-        double probability = VillagerPro.getInstance().getConfig().getDouble(path + ".probability", 1.0);
+        double probability = GameplayMath.clampProbability(VillagerPro.getInstance().getConfig()
+                .getDouble(path + ".probability", 1.0));
         
         // 根据概率决定是否产出
         if (ThreadLocalRandom.current().nextDouble() > probability) {
@@ -263,6 +266,7 @@ public class WorkScheduler {
         productionMultiplier *= 1.0 + SpecializationManager.getEffect(
                 villager, "production_bonus");
         productionMultiplier *= NeedsManager.getProductionMultiplier(villager);
+        productionMultiplier *= PersonalityManager.getInstance().getProductionMultiplier(villager);
         productionMultiplier *= WorkstationManager.getProductionMultiplier(villager);
         productionMultiplier *= BuildingManager.getProductionMultiplier(village.getId());
         productionMultiplier *= PolicyManager.getProductionMultiplier(village.getId());
@@ -278,7 +282,7 @@ public class WorkScheduler {
         if ("fisherman".equals(profession)) {
             int treasureHunter = villager.getSkills().getOrDefault("treasure_hunter", 0);
             int fishingMastery = village.getUpgrades().getOrDefault("fishing_mastery", 0);
-            double treasureChance = Math.min(1.0, treasureHunter
+            double treasureChance = GameplayMath.clampProbability(treasureHunter
                     * VillagerUpgradeManager.getDoubleEffect(profession, "treasure_hunter",
                     "treasure_chance_per_level", 0.1)
                     + fishingMastery * VillageUpgradeManager.getDoubleEffect(
@@ -297,7 +301,7 @@ public class WorkScheduler {
             int enchantmentExpert = villager.getSkills().getOrDefault("enchantment_expert", 0);
             double specialChance = enchantmentExpert * VillagerUpgradeManager.getDoubleEffect(
                     profession, "enchantment_expert", "special_chance_per_level", 0.1);
-            if (ThreadLocalRandom.current().nextDouble() < Math.min(1.0, specialChance)) {
+            if (ThreadLocalRandom.current().nextDouble() < GameplayMath.clampProbability(specialChance)) {
                 Material special = Material.getMaterial(VillagerPro.getInstance().getConfig()
                         .getString(path + ".special_item", "ENCHANTED_BOOK"));
                 if (special != null && WarehouseRuleManager.isProductionEnabled(
@@ -308,7 +312,7 @@ public class WorkScheduler {
         }
         if ("cartographer".equals(profession)) {
             int treasureMap = villager.getSkills().getOrDefault("treasure_map", 0);
-            if (ThreadLocalRandom.current().nextDouble() < Math.min(1.0,
+            if (ThreadLocalRandom.current().nextDouble() < GameplayMath.clampProbability(
                     treasureMap * VillagerUpgradeManager.getDoubleEffect(
                             profession, "treasure_map", "treasure_chance_per_level", 0.1)
                             + SpecializationManager.getEffect(villager, "treasure_chance"))) {
@@ -322,7 +326,8 @@ public class WorkScheduler {
         }
         String rareItem = SpecializationManager.getRareItem(villager);
         double rareChance = SpecializationManager.getEffect(villager, "rare_chance");
-        if (rareItem != null && ThreadLocalRandom.current().nextDouble() < Math.min(1.0, rareChance)) {
+        if (rareItem != null && ThreadLocalRandom.current().nextDouble()
+                < GameplayMath.clampProbability(rareChance)) {
             Material rareMaterial = Material.getMaterial(rareItem);
             if (rareMaterial != null && WarehouseRuleManager.isProductionEnabled(
                     village.getId(), rareMaterial.name())) {
@@ -501,6 +506,10 @@ public class WorkScheduler {
     public static boolean canWorkNow(int villagerId) {
         return getRemainingWorkTime(villagerId) <= 0;
     }
+
+    public static void removeVillagerSchedule(int villagerId) {
+        nextWorkTime.remove(villagerId);
+    }
     
     /**
      * 关闭工作调度器
@@ -508,6 +517,8 @@ public class WorkScheduler {
     public static void shutdown() {
         if (workTask != null) {
             workTask.cancel();
+            workTask = null;
         }
+        nextWorkTime.clear();
     }
 }

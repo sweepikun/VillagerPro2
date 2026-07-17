@@ -513,6 +513,12 @@ personality:
     base_mood: 70
     # 最高情绪值
     max_mood: 100
+
+  production:
+    loyalty_threshold: 80
+    loyalty_bonus: 0.05
+    mood_threshold: 80
+    mood_bonus: 0.05
     
   # 互动奖励
   interactions:
@@ -583,6 +589,12 @@ defense:
     level_requirement: 3
     # 守卫持续时间（分钟）
     duration_minutes: 5
+    # 每个村庄同时存在的临时守卫上限
+    max_active_per_village: 1
+    max_health: 100.0
+    attack_damage: 15.0
+    movement_speed: 0.35
+    invulnerable: true
     # 召唤成本
     cost:
       - type: "vault"
@@ -606,6 +618,8 @@ defense:
     monster_reduction: 10
     # 村民受到攻击时的保护
     villager_protection: true
+    # 实际伤害减免比例，0.50 表示减伤 50%
+    damage_reduction: 0.50
 
 
 # ==============================
@@ -1151,7 +1165,7 @@ features:
 # 兼容性设置
 # ==============================
 compatibility:
-  # 是否在村民死亡时自动移除绑定（避免僵尸村民残留）
+  # 是否在村民死亡、感染为僵尸村民或转化为其他实体时自动移除绑定
   auto_cleanup_dead_villagers: true
   # 是否允许村民在非主世界工作（如生存世界）
   allow_work_in_all_worlds: false

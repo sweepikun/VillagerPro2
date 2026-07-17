@@ -58,7 +58,7 @@ public class VisitorListener implements Listener {
         // 检查访客是否过期
         if (visitor.isExpired()) {
             player.sendMessage("§c这位访客已经离开了");
-            visitor.removeEntity();
+            visitorManager.removeVisitor(visitor.getId());
             return;
         }
         

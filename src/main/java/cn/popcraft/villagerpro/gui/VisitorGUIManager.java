@@ -1125,14 +1125,18 @@ public class VisitorGUIManager {
     private static OperationTransactions.FestivalClaimResult claimFestivalReward(
             Player player, String claimKey, Village village, String rewardItem,
             int rewardAmount, long boostDurationHours) {
+        long now = System.currentTimeMillis();
+        long durationMillis = boostDurationHours > Long.MAX_VALUE / (60L * 60L * 1000L)
+                ? Long.MAX_VALUE : Math.max(0L, boostDurationHours) * 60L * 60L * 1000L;
+        long boostExpiry = durationMillis > Long.MAX_VALUE - now
+                ? Long.MAX_VALUE : now + durationMillis;
         try (Connection connection = DatabaseManager.getConnection()) {
             return OperationTransactions.claimFestivalReward(connection,
                     DatabaseManager.getDialect(), player.getUniqueId().toString(),
                     claimKey, village.getId(), rewardItem, rewardAmount,
                     village.getWarehouseCapacity(),
                     boostDurationHours > 0 ? claimKey : null,
-                    boostDurationHours > 0 ? System.currentTimeMillis()
-                            + boostDurationHours * 60L * 60L * 1000L : 0);
+                    boostDurationHours > 0 ? boostExpiry : 0);
         } catch (SQLException e) {
             VillagerPro.getInstance().getLogger().warning("保存节日领取状态失败: " + e.getMessage());
             return new OperationTransactions.FestivalClaimResult(false, 0);

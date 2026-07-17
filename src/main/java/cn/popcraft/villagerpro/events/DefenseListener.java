@@ -67,7 +67,7 @@ public class DefenseListener implements Listener {
                 plugin.getConfig().getDouble("defense.protection.monster_reduction", 10));
         double reductionPerLevel = VillageUpgradeManager.getDoubleEffect(
                 "mob_reduction", "spawn_reduction_per_level", legacyReduction);
-        double reductionChance = Math.min(1.0,
+        double reductionChance = GameplayMath.clampProbability(
                 reductionLevel * Math.max(0.0, reductionPerLevel));
 
         if (ThreadLocalRandom.current().nextDouble() < reductionChance) {
@@ -114,8 +114,9 @@ public class DefenseListener implements Listener {
             return;
         }
 
-        // 减少 50% 伤害（可在配置中扩展）
-        event.setDamage(event.getDamage() * 0.5);
+        double damageReduction = plugin.getConfig()
+                .getDouble("defense.protection.damage_reduction", 0.50);
+        event.setDamage(GameplayMath.damageAfterReduction(event.getDamage(), damageReduction));
     }
 
     private Village findNearestVillage(Location location) {

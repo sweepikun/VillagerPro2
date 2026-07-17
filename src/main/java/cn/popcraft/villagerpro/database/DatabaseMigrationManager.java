@@ -39,6 +39,7 @@ public final class DatabaseMigrationManager {
             "villager_upgrades",
             "visitors",
             "visitor_shop_sales",
+            "active_guards",
             "visitor_deals",
             "decorations",
             "villager_personality",

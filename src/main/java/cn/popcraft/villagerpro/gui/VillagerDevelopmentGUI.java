@@ -1,6 +1,7 @@
 package cn.popcraft.villagerpro.gui;
 
 import cn.popcraft.villagerpro.managers.NeedsManager;
+import cn.popcraft.villagerpro.managers.PersonalityManager;
 import cn.popcraft.villagerpro.managers.SpecializationManager;
 import cn.popcraft.villagerpro.managers.VillageManager;
 import cn.popcraft.villagerpro.managers.VillagerAbilityManager;
@@ -109,6 +110,8 @@ public final class VillagerDevelopmentGUI {
         List<String> lore = new ArrayList<>();
         lore.add("§7需求倍率: §f" + String.format("%.0f%%",
                 NeedsManager.getProductionMultiplier(villager) * 100));
+        lore.add("§7个性效率: §f" + String.format("%.0f%%",
+                PersonalityManager.getInstance().getProductionMultiplier(villager) * 100));
         lore.add("§7按三项需求中的最低值判定");
         lore.add("§7最近消耗: §f" + (needs.getLastConsumed().isBlank()
                 ? "暂无" : needs.getLastConsumed()));

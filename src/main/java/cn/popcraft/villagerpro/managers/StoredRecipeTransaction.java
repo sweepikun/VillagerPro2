@@ -4,6 +4,7 @@ import cn.popcraft.villagerpro.database.DatabaseDialect;
 
 import java.sql.Connection;
 import java.sql.PreparedStatement;
+import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.util.Map;
 
@@ -11,12 +12,17 @@ final class StoredRecipeTransaction {
     private StoredRecipeTransaction() {
     }
 
-    static boolean apply(Connection connection, DatabaseDialect dialect, int villageId,
-                         Map<String, Integer> consumed, Map<String, Integer> produced,
-                         Map<String, Integer> reserves) throws SQLException {
+    static Result apply(Connection connection, DatabaseDialect dialect, int villageId,
+                        Map<String, Integer> consumed, Map<String, Integer> produced,
+                        Map<String, Integer> reserves, int warehouseCapacity) throws SQLException {
         boolean autoCommit = connection.getAutoCommit();
         connection.setAutoCommit(false);
         try {
+            try (PreparedStatement lock = connection.prepareStatement(
+                    "UPDATE villages SET id = id WHERE id = ?")) {
+                lock.setInt(1, villageId);
+                lock.executeUpdate();
+            }
             for (Map.Entry<String, Integer> input : consumed.entrySet()) {
                 int reserve = reserves.getOrDefault(input.getKey(), 0);
                 try (PreparedStatement statement = connection.prepareStatement(
@@ -28,9 +34,26 @@ final class StoredRecipeTransaction {
                     statement.setInt(4, input.getValue() + reserve);
                     if (statement.executeUpdate() <= 0) {
                         connection.rollback();
-                        return false;
+                        return Result.MISSING_INPUT;
                     }
                 }
+            }
+            int currentStorage;
+            try (PreparedStatement total = connection.prepareStatement(
+                    "SELECT COALESCE(SUM(amount), 0) FROM warehouse WHERE village_id = ?")) {
+                total.setInt(1, villageId);
+                try (ResultSet resultSet = total.executeQuery()) {
+                    if (!resultSet.next()) {
+                        connection.rollback();
+                        return Result.MISSING_INPUT;
+                    }
+                    currentStorage = resultSet.getInt(1);
+                }
+            }
+            int producedTotal = produced.values().stream().mapToInt(Integer::intValue).sum();
+            if (currentStorage + producedTotal > warehouseCapacity) {
+                connection.rollback();
+                return Result.WAREHOUSE_FULL;
             }
             String outputSql = dialect.additiveUpsert(
                     "INSERT INTO warehouse (village_id, item_type, amount) VALUES (?, ?, ?)",
@@ -44,12 +67,18 @@ final class StoredRecipeTransaction {
                 }
             }
             connection.commit();
-            return true;
+            return Result.SUCCESS;
         } catch (SQLException exception) {
             connection.rollback();
             throw exception;
         } finally {
             connection.setAutoCommit(autoCommit);
         }
+    }
+
+    enum Result {
+        SUCCESS,
+        MISSING_INPUT,
+        WAREHOUSE_FULL
     }
 }

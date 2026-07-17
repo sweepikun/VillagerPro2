@@ -106,8 +106,12 @@ public final class PolicyManager {
         long now = System.currentTimeMillis();
         long durationHours = Math.max(1, VillagerPro.getInstance().getConfig()
                 .getLong("policies.duration_hours", 24));
+        long durationMillis = durationHours > Long.MAX_VALUE / (60L * 60L * 1000L)
+                ? Long.MAX_VALUE : durationHours * 60L * 60L * 1000L;
+        long expiresAt = durationMillis > Long.MAX_VALUE - now
+                ? Long.MAX_VALUE : now + durationMillis;
         ActivePolicy selected = new ActivePolicy(village.getId(), type, now,
-                now + durationHours * 60L * 60L * 1000L);
+                expiresAt);
         String sql = DatabaseManager.upsert(
                 "INSERT INTO village_policies (village_id, policy_id, activated_at_ms, expires_at_ms) "
                         + "VALUES (?, ?, ?, ?)", new String[]{"village_id"},
@@ -191,9 +195,12 @@ public final class PolicyManager {
     }
 
     public static int applyWarehouseCapacity(int villageId, int baseCapacity) {
-        if (!isPolicy(villageId, PolicyType.RESERVE_FOCUS)) return baseCapacity;
-        return (int) Math.floor(baseCapacity * config(
-                "policies.reserve.capacity_multiplier", 1.20));
+        int safeBase = Math.max(0, baseCapacity);
+        if (!isPolicy(villageId, PolicyType.RESERVE_FOCUS)) return safeBase;
+        double multiplier = config("policies.reserve.capacity_multiplier", 1.20);
+        if (!Double.isFinite(multiplier) || multiplier <= 0) return safeBase;
+        double adjusted = Math.floor(safeBase * multiplier);
+        return adjusted >= Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) adjusted;
     }
 
     public static double getFrozenStockFraction(int villageId) {

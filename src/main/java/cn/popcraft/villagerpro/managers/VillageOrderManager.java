@@ -115,11 +115,10 @@ public final class VillageOrderManager {
         int configuredReserve = WarehouseRuleManager.getItemRule(
                 village.getId(), order.getItemType()).getReserveAmount();
         double frozenFraction = PolicyManager.getFrozenStockFraction(village.getId());
-        int nextProsperity = village.getProsperity() + order.getRewardProsperity();
         try (Connection connection = DatabaseManager.getConnection()) {
             if (!OperationTransactions.acceptOrder(connection, order.getId(), village.getId(),
                     order.getItemType(), order.getAmountRequired(), configuredReserve, frozenFraction,
-                    effectiveRewardMoney, nextProsperity)) {
+                    effectiveRewardMoney, order.getRewardProsperity())) {
                 if (!automatic) player.sendMessage("§c库存或订单状态已经变化，本次交付未生效");
                 return false;
             }
@@ -128,7 +127,7 @@ public final class VillageOrderManager {
             if (!automatic) player.sendMessage("§c订单提交失败，库存、繁荣度和状态均未改变");
             return false;
         }
-        village.setProsperity(nextProsperity);
+        village.addProsperity(Math.max(0, order.getRewardProsperity()));
 
         PayoutResult payout = payOrder(player, order.getId(), effectiveRewardMoney);
         if (payout != PayoutResult.COMPLETED) {

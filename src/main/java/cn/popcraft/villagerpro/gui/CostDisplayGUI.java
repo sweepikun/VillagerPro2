@@ -10,9 +10,9 @@ import org.bukkit.entity.Player;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
 import org.bukkit.inventory.meta.ItemMeta;
+import org.bukkit.metadata.MetadataValue;
 
 import java.util.List;
-import java.util.UUID;
 
 /**
  * 消耗物品展示GUI管理器
@@ -20,7 +20,12 @@ import java.util.UUID;
  */
 public class CostDisplayGUI {
     
-    private static final String GUI_TITLE = ChatColor.GOLD + "消耗物品确认";
+    private static final String GUI_TITLE =
+            GUIManager.getGUIPrefix() + ChatColor.GOLD + "消耗物品确认";
+
+    public static boolean isConfirmationTitle(String title) {
+        return GUI_TITLE.equals(title);
+    }
     
     /**
      * 打开消耗物品确认界面
@@ -243,19 +248,11 @@ public class CostDisplayGUI {
      */
     public static void handleConfirmClick(Player player) {
         // 获取并移除确认回调
-        List<org.bukkit.metadata.MetadataValue> confirmCallbacks = player.getMetadata("cost_action_confirm");
-        if (!confirmCallbacks.isEmpty()) {
-            org.bukkit.metadata.MetadataValue callback = confirmCallbacks.get(0);
-            if (callback.value() instanceof Runnable) {
-                ((Runnable) callback.value()).run();
-            }
-        }
+        Runnable callback = takeCallback(player, "cost_action_confirm");
         
         // 清理metadata
-        player.removeMetadata("cost_action_confirm", VillagerPro.getInstance());
-        player.removeMetadata("cost_action_cancel", VillagerPro.getInstance());
-        
         player.closeInventory();
+        if (callback != null) callback.run();
     }
     
     /**
@@ -263,18 +260,28 @@ public class CostDisplayGUI {
      */
     public static void handleCancelClick(Player player) {
         // 获取并移除取消回调
-        List<org.bukkit.metadata.MetadataValue> cancelCallbacks = player.getMetadata("cost_action_cancel");
-        if (!cancelCallbacks.isEmpty()) {
-            org.bukkit.metadata.MetadataValue callback = cancelCallbacks.get(0);
-            if (callback.value() instanceof Runnable) {
-                ((Runnable) callback.value()).run();
-            }
-        }
+        Runnable callback = takeCallback(player, "cost_action_cancel");
         
         // 清理metadata
+        player.closeInventory();
+        if (callback != null) callback.run();
+    }
+
+    public static void clearCallbacks(Player player) {
         player.removeMetadata("cost_action_confirm", VillagerPro.getInstance());
         player.removeMetadata("cost_action_cancel", VillagerPro.getInstance());
-        
-        player.closeInventory();
+    }
+
+    private static Runnable takeCallback(Player player, String metadataKey) {
+        Runnable callback = null;
+        for (MetadataValue value : player.getMetadata(metadataKey)) {
+            if (value.getOwningPlugin() == VillagerPro.getInstance()
+                    && value.value() instanceof Runnable runnable) {
+                callback = runnable;
+                break;
+            }
+        }
+        clearCallbacks(player);
+        return callback;
     }
 }

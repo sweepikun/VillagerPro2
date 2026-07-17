@@ -235,8 +235,10 @@ public class CommandManager implements CommandExecutor, TabCompleter {
                         case "info":
                         case "remove":
                         case "upgrade":
-                            // 这些子命令需要村民ID
-                            completions.add("<村民ID>");
+                        case "specialize":
+                        case "needs":
+                        case "workstation":
+                            addOwnedVillagerIdCompletions(player, args[1], completions);
                             break;
                     }
                 }
@@ -247,7 +249,7 @@ public class CommandManager implements CommandExecutor, TabCompleter {
                     StringUtil.copyPartialMatches(args[0], UPGRADE_SUBCOMMANDS, completions);
                 } else if (args.length == 2) {
                     if ("villager".equals(args[0].toLowerCase())) {
-                        completions.add("<村民ID>");
+                        addOwnedVillagerIdCompletions(player, args[1], completions);
                     }
                 }
                 break;
@@ -255,6 +257,16 @@ public class CommandManager implements CommandExecutor, TabCompleter {
         
         Collections.sort(completions);
         return completions;
+    }
+
+    private void addOwnedVillagerIdCompletions(Player player, String input,
+                                               List<String> completions) {
+        Village village = VillageManager.getVillage(player.getUniqueId());
+        if (village == null) return;
+        List<String> ids = VillagerManager.getVillagers(village.getId()).stream()
+                .map(villager -> Integer.toString(villager.getId()))
+                .toList();
+        StringUtil.copyPartialMatches(input, ids, completions);
     }
 
     private boolean handleDatabaseCommand(CommandSender sender, String[] args) {

@@ -37,8 +37,8 @@ public class VillagerData {
         this.villageId = villageId;
         this.entityUUID = entityUUID;
         this.profession = profession;
-        this.level = level;
-        this.experience = experience;
+        this.level = Math.max(1, level);
+        this.experience = Math.max(0, experience);
         this.followMode = followMode;
         this.skills = null; // 延迟加载
     }
@@ -63,7 +63,7 @@ public class VillagerData {
     public UUID getEntityUUID() {
         return entityUUID;
     }
-    
+
     public void setEntityUUID(UUID entityUUID) {
         this.entityUUID = entityUUID;
     }
@@ -81,7 +81,7 @@ public class VillagerData {
     }
     
     public void setLevel(int level) {
-        this.level = level;
+        this.level = Math.max(1, level);
     }
     
     public int getExperience() {
@@ -89,7 +89,7 @@ public class VillagerData {
     }
     
     public void setExperience(int experience) {
-        this.experience = experience;
+        this.experience = Math.max(0, experience);
     }
     
     public String getFollowMode() {
@@ -164,7 +164,8 @@ public class VillagerData {
      * @param exp 经验值
      */
     public void addExperience(int exp) {
-        this.experience += exp;
+        long updated = (long) this.experience + exp;
+        this.experience = (int) Math.max(0L, Math.min(Integer.MAX_VALUE, updated));
     }
     
     /**

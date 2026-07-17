@@ -105,6 +105,9 @@ public class VillagerPro extends JavaPlugin {
             // GUIManager是静态类，不需要实例
             allianceGUIManager.initialize(this, allianceManager, null);
         }
+
+        getServer().getScheduler().runTask(this,
+                cn.popcraft.villagerpro.managers.FollowManager::restoreLoadedModes);
         
         getLogger().info("VillagerPro 2.0 - 沉浸式村庄经营生态系统已启用！");
     }
@@ -112,17 +115,23 @@ public class VillagerPro extends JavaPlugin {
     @Override
     public void onDisable() {
         if (!databaseInitialized) {
+            cn.popcraft.villagerpro.managers.CacheManager.clearAll();
             DatabaseManager.shutdown();
             return;
         }
 
         // 停止所有跟随任务
         cn.popcraft.villagerpro.managers.FollowManager.shutdown();
+        DefenseManager.shutdownIfInitialized();
         
         // 关闭工作调度器
         WorkScheduler.shutdown();
         NeedsManager.shutdown();
+        PersonalityManager.shutdown();
+        cn.popcraft.villagerpro.managers.SpecializationManager.shutdown();
+        cn.popcraft.villagerpro.managers.WorkstationManager.shutdown();
         BuildingManager.shutdown();
+        cn.popcraft.villagerpro.managers.CacheManager.clearAll();
         PolicyManager.shutdown();
         CrisisManager.shutdown();
         CaravanManager.shutdown();

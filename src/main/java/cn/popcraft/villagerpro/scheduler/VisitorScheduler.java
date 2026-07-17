@@ -4,6 +4,7 @@ import cn.popcraft.villagerpro.VillagerPro;
 import cn.popcraft.villagerpro.managers.VillageManager;
 import cn.popcraft.villagerpro.managers.VisitorManager;
 import cn.popcraft.villagerpro.models.Village;
+import cn.popcraft.villagerpro.util.GameplayMath;
 import org.bukkit.Bukkit;
 import org.bukkit.scheduler.BukkitRunnable;
 
@@ -101,7 +102,8 @@ public class VisitorScheduler {
         }
         
         // 检查生成概率
-        double spawnProbability = plugin.getConfig().getDouble("visitors.spawn_probability", 0.3);
+        double spawnProbability = GameplayMath.clampProbability(
+                plugin.getConfig().getDouble("visitors.spawn_probability", 0.3));
         return random.nextDouble() < spawnProbability;
     }
     

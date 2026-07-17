@@ -4,6 +4,7 @@ import cn.popcraft.villagerpro.VillagerPro;
 import cn.popcraft.villagerpro.database.DatabaseManager;
 import cn.popcraft.villagerpro.models.VillagerData;
 import cn.popcraft.villagerpro.models.Village;
+import cn.popcraft.villagerpro.util.GameplayMath;
 import org.bukkit.configuration.ConfigurationSection;
 import org.bukkit.entity.Player;
 import org.bukkit.entity.Villager;
@@ -37,6 +38,36 @@ public class PersonalityManager {
     
     private PersonalityManager() {
         this.plugin = VillagerPro.getInstance();
+    }
+
+    public static boolean isEnabled() {
+        return VillagerPro.getInstance().getConfig().getBoolean("features.personality", true)
+                && VillagerPro.getInstance().getConfig().getBoolean("personality.enabled", true);
+    }
+
+    public static void removePersonalityCache(VillagerData villager) {
+        if (instance != null && villager != null) {
+            instance.personalities.remove(villager.getEntityUUID());
+        }
+    }
+
+    public static void shutdown() {
+        if (instance != null) {
+            instance.personalities.clear();
+            instance = null;
+        }
+    }
+
+    public double getProductionMultiplier(VillagerData villager) {
+        if (!isEnabled()) return 1.0;
+        VillagerPersonality personality = getVillagerPersonality(villager);
+        if (personality == null) return 1.0;
+        return GameplayMath.personalityProductionMultiplier(
+                personality.getLoyalty(), personality.getMood(),
+                plugin.getConfig().getInt("personality.production.loyalty_threshold", 80),
+                plugin.getConfig().getDouble("personality.production.loyalty_bonus", 0.05),
+                plugin.getConfig().getInt("personality.production.mood_threshold", 80),
+                plugin.getConfig().getDouble("personality.production.mood_bonus", 0.05));
     }
     
     /**
@@ -124,6 +155,18 @@ public class PersonalityManager {
             savePersonalityToDatabase(villager, personality);
             checkSpecialEffects(villager, personality);
         }
+    }
+
+    public boolean applyMoodBonus(VillagerData villager, int moodBonus) {
+        if (villager == null || moodBonus <= 0) return false;
+        VillagerPersonality personality = getVillagerPersonality(villager);
+        if (personality == null) return false;
+        int before = personality.getMood();
+        personality.addMood(moodBonus);
+        if (personality.getMood() == before) return false;
+        savePersonalityToDatabase(villager, personality);
+        checkSpecialEffects(villager, personality);
+        return true;
     }
     
     /**

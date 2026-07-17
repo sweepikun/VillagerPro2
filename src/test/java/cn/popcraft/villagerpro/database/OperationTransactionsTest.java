@@ -17,31 +17,42 @@ class OperationTransactionsTest {
     void caravanDispatchAndClaimAreAtomicAndSingleUse() throws Exception {
         try (Connection connection = database(); Statement statement = connection.createStatement()) {
             statement.execute("INSERT INTO villages(id, prosperity) VALUES (1, 20)");
-            statement.execute("INSERT INTO warehouse(village_id, item_type, amount) VALUES (1, 'BREAD', 24)");
+            statement.execute("INSERT INTO warehouse(village_id, item_type, amount) VALUES (1, 'BREAD', 40)");
 
             assertTrue(OperationTransactions.dispatchCaravan(connection, 1,
                     "BREAD", 16, 4, .15, "capital", "EMERALD", 6,
-                    true, 1, 2));
-            assertEquals(8, queryInt(statement,
+                    true, 1, 2, 1));
+            assertEquals(24, queryInt(statement,
                     "SELECT amount FROM warehouse WHERE village_id = 1 AND item_type = 'BREAD'"));
             assertEquals(1, queryInt(statement, "SELECT COUNT(*) FROM caravan_routes"));
 
             assertFalse(OperationTransactions.dispatchCaravan(connection, 1,
                     "BREAD", 5, 4, .50, "capital", "EMERALD", 2,
-                    true, 1, 2));
-            assertEquals(8, queryInt(statement,
+                    true, 1, 2, 1));
+            assertEquals(24, queryInt(statement,
                     "SELECT amount FROM warehouse WHERE village_id = 1 AND item_type = 'BREAD'"));
             assertEquals(1, queryInt(statement, "SELECT COUNT(*) FROM caravan_routes"));
 
             statement.execute("UPDATE caravan_routes SET status = 'ready' WHERE id = 1");
             assertTrue(OperationTransactions.claimCaravan(
-                    connection, DatabaseDialect.SQLITE, 1, 1, "EMERALD", 6));
+                    connection, DatabaseDialect.SQLITE, 1, 1, "EMERALD", 6, 30));
             assertEquals(6, queryInt(statement,
                     "SELECT amount FROM warehouse WHERE village_id = 1 AND item_type = 'EMERALD'"));
             assertFalse(OperationTransactions.claimCaravan(
-                    connection, DatabaseDialect.SQLITE, 1, 1, "EMERALD", 6));
+                    connection, DatabaseDialect.SQLITE, 1, 1, "EMERALD", 6, 30));
             assertEquals(6, queryInt(statement,
                     "SELECT amount FROM warehouse WHERE village_id = 1 AND item_type = 'EMERALD'"));
+
+            statement.execute("INSERT INTO caravan_routes "
+                    + "(village_id, destination_id, cargo_item, cargo_amount, return_item, return_amount, "
+                    + "status, successful, departed_at_ms, arrives_at_ms) "
+                    + "VALUES (1, 'coast', 'BREAD', 1, 'COD', 10, 'ready', 1, 1, 2)");
+            assertFalse(OperationTransactions.claimCaravan(
+                    connection, DatabaseDialect.SQLITE, 2, 1, "COD", 10, 30));
+            assertEquals("ready", queryString(statement,
+                    "SELECT status FROM caravan_routes WHERE id = 2"));
+            assertEquals(0, queryInt(statement,
+                    "SELECT COUNT(*) FROM warehouse WHERE item_type = 'COD'"));
         }
     }
 
@@ -73,13 +84,89 @@ class OperationTransactionsTest {
                     "SELECT contributed_amount FROM village_crises WHERE village_id = 1"));
 
             assertTrue(OperationTransactions.settleCrisis(
-                    connection, 1, "epidemic", 999, 30));
+                    connection, 1, "epidemic", 999, 10).settled());
             assertEquals(30, queryInt(statement, "SELECT prosperity FROM villages WHERE id = 1"));
             assertEquals(0, queryInt(statement,
                     "SELECT contributed_amount FROM village_crises WHERE village_id = 1"));
             assertFalse(OperationTransactions.settleCrisis(
-                    connection, 1, "epidemic", 1000, 40));
+                    connection, 1, "epidemic", 1000, 10).settled());
             assertEquals(30, queryInt(statement, "SELECT prosperity FROM villages WHERE id = 1"));
+        }
+    }
+
+    @Test
+    void crisisSettlementAppliesAStoredProsperityDeltaOnce() throws Exception {
+        try (Connection connection = database(); Statement statement = connection.createStatement()) {
+            statement.execute("INSERT INTO villages(id, prosperity) VALUES (1, 20)");
+            statement.execute("INSERT INTO village_crises "
+                    + "(village_id, crisis_id, status) VALUES (1, 'epidemic', 'active')");
+
+            OperationTransactions.CrisisSettlement reward = OperationTransactions.settleCrisis(
+                    connection, 1, "epidemic", 100, 8);
+            assertTrue(reward.settled());
+            assertEquals(28, reward.prosperity());
+            assertEquals(28, queryInt(statement, "SELECT prosperity FROM villages WHERE id = 1"));
+            assertFalse(OperationTransactions.settleCrisis(
+                    connection, 1, "epidemic", 100, 8).settled());
+
+            statement.execute("UPDATE village_crises SET crisis_id = 'fire', status = 'active' WHERE village_id = 1");
+            OperationTransactions.CrisisSettlement penalty = OperationTransactions.settleCrisis(
+                    connection, 1, "fire", 200, -40);
+            assertTrue(penalty.settled());
+            assertEquals(0, penalty.prosperity());
+        }
+    }
+
+    @Test
+    void prosperityAdjustmentsUseStoredValuesAndNeverGoNegative() throws Exception {
+        try (Connection connection = database(); Statement statement = connection.createStatement()) {
+            statement.execute("INSERT INTO villages(id, prosperity) VALUES (1, 4)");
+
+            OperationTransactions.ProsperityAdjustment increase =
+                    OperationTransactions.adjustVillageProsperity(connection, 1, 8);
+            assertTrue(increase.adjusted());
+            assertEquals(12, increase.prosperity());
+
+            OperationTransactions.ProsperityAdjustment decrease =
+                    OperationTransactions.adjustVillageProsperity(connection, 1, -20);
+            assertTrue(decrease.adjusted());
+            assertEquals(0, decrease.prosperity());
+            assertEquals(0, queryInt(statement, "SELECT prosperity FROM villages WHERE id = 1"));
+        }
+    }
+
+    @Test
+    void needSuppliesAndNeedStateCommitOrRollbackTogether() throws Exception {
+        try (Connection connection = database(); Statement statement = connection.createStatement()) {
+            statement.execute("INSERT INTO villages(id, prosperity) VALUES (1, 0)");
+            statement.execute("INSERT INTO warehouse(village_id, item_type, amount) VALUES (1, 'BREAD', 4)");
+            statement.execute("INSERT INTO villager_needs "
+                    + "(villager_id, hunger, comfort, health, last_updated_ms, last_consumed) "
+                    + "VALUES (7, 50, 90, 90, 10, '')");
+            OperationTransactions.NeedSupply noSupply = new OperationTransactions.NeedSupply(
+                    java.util.List.of(), 0);
+
+            OperationTransactions.NeedsSettlement settled = OperationTransactions.settleVillagerNeeds(
+                    connection, 1, 7, 10, 20, 50, 90, 90, "", 65,
+                    new OperationTransactions.NeedSupply(java.util.List.of("BREAD"), 25),
+                    noSupply, noSupply, java.util.Map.of("BREAD", 0), 0);
+            assertTrue(settled.saved());
+            assertEquals(75, settled.hunger());
+            assertEquals("BREAD", settled.consumed());
+            assertEquals(3, queryInt(statement,
+                    "SELECT amount FROM warehouse WHERE village_id = 1 AND item_type = 'BREAD'"));
+            assertEquals(75, queryInt(statement,
+                    "SELECT hunger FROM villager_needs WHERE villager_id = 7"));
+
+            OperationTransactions.NeedsSettlement stale = OperationTransactions.settleVillagerNeeds(
+                    connection, 1, 7, 10, 30, 50, 90, 90, "", 65,
+                    new OperationTransactions.NeedSupply(java.util.List.of("BREAD"), 25),
+                    noSupply, noSupply, java.util.Map.of("BREAD", 0), 0);
+            assertFalse(stale.saved());
+            assertEquals(3, queryInt(statement,
+                    "SELECT amount FROM warehouse WHERE village_id = 1 AND item_type = 'BREAD'"));
+            assertEquals(75, queryInt(statement,
+                    "SELECT hunger FROM villager_needs WHERE villager_id = 7"));
         }
     }
 
@@ -87,13 +174,13 @@ class OperationTransactionsTest {
     void orderAcceptanceConsumesCargoAndRecordsPayoutExactlyOnce() throws Exception {
         try (Connection connection = database(); Statement statement = connection.createStatement()) {
             statement.execute("INSERT INTO villages(id, prosperity) VALUES (1, 20)");
-            statement.execute("INSERT INTO warehouse(village_id, item_type, amount) VALUES (1, 'WHEAT', 40)");
+            statement.execute("INSERT INTO warehouse(village_id, item_type, amount) VALUES (1, 'WHEAT', 72)");
             statement.execute("INSERT INTO village_orders "
                     + "(id, village_id, status, payout_money) VALUES (7, 1, 'pending', 0)");
 
             assertTrue(OperationTransactions.acceptOrder(connection, 7, 1,
-                    "WHEAT", 32, 4, .10, 50, 28));
-            assertEquals(8, queryInt(statement,
+                    "WHEAT", 32, 4, .10, 50, 8));
+            assertEquals(40, queryInt(statement,
                     "SELECT amount FROM warehouse WHERE village_id = 1 AND item_type = 'WHEAT'"));
             assertEquals(28, queryInt(statement, "SELECT prosperity FROM villages WHERE id = 1"));
             assertEquals("payout_pending", queryString(statement,
@@ -101,11 +188,19 @@ class OperationTransactionsTest {
             assertEquals(50, queryInt(statement,
                     "SELECT payout_money FROM village_orders WHERE id = 7"));
 
+            statement.execute("INSERT INTO village_orders "
+                    + "(id, village_id, status, payout_money) VALUES (8, 1, 'pending', 0)");
+            assertTrue(OperationTransactions.acceptOrder(connection, 8, 1,
+                    "WHEAT", 32, 4, .10, 50, 7));
+            assertEquals(8, queryInt(statement,
+                    "SELECT amount FROM warehouse WHERE village_id = 1 AND item_type = 'WHEAT'"));
+            assertEquals(35, queryInt(statement, "SELECT prosperity FROM villages WHERE id = 1"));
+
             assertFalse(OperationTransactions.acceptOrder(connection, 7, 1,
                     "WHEAT", 4, 0, 0, 10, 40));
             assertEquals(8, queryInt(statement,
                     "SELECT amount FROM warehouse WHERE village_id = 1 AND item_type = 'WHEAT'"));
-            assertEquals(28, queryInt(statement, "SELECT prosperity FROM villages WHERE id = 1"));
+            assertEquals(35, queryInt(statement, "SELECT prosperity FROM villages WHERE id = 1"));
         }
     }
 
@@ -331,6 +426,22 @@ class OperationTransactionsTest {
         }
     }
 
+    @Test
+    void sharedWarehouseStoreOnlyClaimsRemainingCapacity() throws Exception {
+        try (Connection connection = database(); Statement statement = connection.createStatement()) {
+            statement.execute("INSERT INTO villages(id, prosperity, level) VALUES (1, 0, 1)");
+
+            assertEquals(8, OperationTransactions.storeWarehouseStock(connection,
+                    DatabaseDialect.SQLITE, 1, "WHEAT", 8, 10));
+            assertEquals(2, OperationTransactions.storeWarehouseStock(connection,
+                    DatabaseDialect.SQLITE, 1, "CARROT", 5, 10));
+            assertEquals(0, OperationTransactions.storeWarehouseStock(connection,
+                    DatabaseDialect.SQLITE, 1, "POTATO", 1, 10));
+            assertEquals(10, queryInt(statement,
+                    "SELECT SUM(amount) FROM warehouse WHERE village_id = 1"));
+        }
+    }
+
     private static Connection database() throws Exception {
         Connection connection = DriverManager.getConnection("jdbc:sqlite::memory:");
         try (Statement statement = connection.createStatement()) {
@@ -375,6 +486,9 @@ class OperationTransactionsTest {
                     + "product_id TEXT NOT NULL, player_uuid TEXT NOT NULL, "
                     + "purchase_count INTEGER NOT NULL DEFAULT 0, updated_at DATETIME, "
                     + "PRIMARY KEY(visitor_id, product_id, player_uuid))");
+            statement.execute("CREATE TABLE villager_needs (villager_id INTEGER PRIMARY KEY, "
+                    + "hunger REAL NOT NULL, comfort REAL NOT NULL, health REAL NOT NULL, "
+                    + "last_updated_ms INTEGER NOT NULL, last_consumed TEXT NOT NULL)");
         }
         return connection;
     }

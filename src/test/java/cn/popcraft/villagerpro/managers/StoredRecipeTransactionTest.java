@@ -21,8 +21,10 @@ class StoredRecipeTransactionTest {
             insert(connection, "WHEAT", 10);
             insert(connection, "BREAD", 2);
 
-            assertTrue(StoredRecipeTransaction.apply(connection, DatabaseDialect.SQLITE, 1,
-                    Map.of("WHEAT", 6), Map.of("BREAD", 2), Map.of("WHEAT", 3)));
+            assertEquals(StoredRecipeTransaction.Result.SUCCESS,
+                    StoredRecipeTransaction.apply(connection, DatabaseDialect.SQLITE, 1,
+                            Map.of("WHEAT", 6), Map.of("BREAD", 2),
+                            Map.of("WHEAT", 3), 20));
 
             assertEquals(4, amount(connection, "WHEAT"));
             assertEquals(4, amount(connection, "BREAD"));
@@ -38,8 +40,10 @@ class StoredRecipeTransactionTest {
             inputs.put("WHEAT", 6);
             inputs.put("SUGAR", 2);
 
-            assertFalse(StoredRecipeTransaction.apply(connection, DatabaseDialect.SQLITE, 1,
-                    inputs, Map.of("COOKIE", 4), Map.of("WHEAT", 0, "SUGAR", 0)));
+            assertEquals(StoredRecipeTransaction.Result.MISSING_INPUT,
+                    StoredRecipeTransaction.apply(connection, DatabaseDialect.SQLITE, 1,
+                            inputs, Map.of("COOKIE", 4),
+                            Map.of("WHEAT", 0, "SUGAR", 0), 20));
 
             assertEquals(10, amount(connection, "WHEAT"));
             assertEquals(1, amount(connection, "SUGAR"));
@@ -47,9 +51,26 @@ class StoredRecipeTransactionTest {
         }
     }
 
+    @Test
+    void capacityFailureRollsBackConsumedInputs() throws Exception {
+        try (Connection connection = createWarehouse()) {
+            insert(connection, "WHEAT", 10);
+            insert(connection, "CARROT", 8);
+
+            assertEquals(StoredRecipeTransaction.Result.WAREHOUSE_FULL,
+                    StoredRecipeTransaction.apply(connection, DatabaseDialect.SQLITE, 1,
+                            Map.of("WHEAT", 3), Map.of("BREAD", 4),
+                            Map.of("WHEAT", 0), 18));
+            assertEquals(10, amount(connection, "WHEAT"));
+            assertEquals(0, amount(connection, "BREAD"));
+        }
+    }
+
     private static Connection createWarehouse() throws Exception {
         Connection connection = DriverManager.getConnection("jdbc:sqlite::memory:");
         try (Statement statement = connection.createStatement()) {
+            statement.execute("CREATE TABLE villages (id INTEGER PRIMARY KEY)");
+            statement.execute("INSERT INTO villages(id) VALUES (1)");
             statement.execute("CREATE TABLE warehouse (id INTEGER PRIMARY KEY AUTOINCREMENT, "
                     + "village_id INTEGER NOT NULL, item_type TEXT NOT NULL, amount INTEGER NOT NULL, "
                     + "UNIQUE(village_id, item_type))");

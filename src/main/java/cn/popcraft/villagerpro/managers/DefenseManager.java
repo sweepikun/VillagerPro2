@@ -6,12 +6,19 @@ import cn.popcraft.villagerpro.economy.CostEntry;
 import cn.popcraft.villagerpro.economy.CostHandler;
 import cn.popcraft.villagerpro.models.Village;
 import cn.popcraft.villagerpro.models.VillagerData;
+import cn.popcraft.villagerpro.util.GameplayMath;
 import org.bukkit.Bukkit;
 import org.bukkit.Location;
 import org.bukkit.Material;
+import org.bukkit.NamespacedKey;
+import org.bukkit.attribute.Attribute;
+import org.bukkit.attribute.AttributeInstance;
+import org.bukkit.entity.Entity;
 import org.bukkit.entity.IronGolem;
 import org.bukkit.entity.Player;
-import org.bukkit.entity.SpawnCategory;
+import org.bukkit.entity.Villager;
+import org.bukkit.persistence.PersistentDataContainer;
+import org.bukkit.persistence.PersistentDataType;
 import org.bukkit.scheduler.BukkitRunnable;
 
 import java.sql.Connection;
@@ -22,467 +29,490 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Random;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
 
-/**
- * 防御系统管理器
- * 负责管理村庄防御机制，包括守卫召唤、自动避难所等
- */
-public class DefenseManager {
-    
+/** Manages temporary guards and the automatic night shelter. */
+public final class DefenseManager {
     private static DefenseManager instance;
+
     private final VillagerPro plugin;
     private final CostHandler costHandler;
-    private final Random random;
-    private final List<ActiveGuard> activeGuards;
-    private final Map<Integer, Boolean> activeShelters;
-    private final Map<Integer, Map<UUID, Location>> shelterOriginalLocations;
-    
+    private final List<ActiveGuard> activeGuards = new CopyOnWriteArrayList<>();
+    private final Map<Integer, Boolean> activeShelters = new ConcurrentHashMap<>();
+    private final Map<Integer, Map<UUID, Location>> shelterOriginalLocations = new ConcurrentHashMap<>();
+    private final NamespacedKey guardIdKey;
+    private final NamespacedKey guardVillageKey;
+    private final NamespacedKey guardExpiryKey;
+    private final NamespacedKey shelterVillageKey;
+    private final NamespacedKey shelterLocationKey;
+
     public static DefenseManager getInstance() {
-        if (instance == null) {
-            instance = new DefenseManager();
-        }
+        if (instance == null) instance = new DefenseManager();
         return instance;
     }
-    
+
+    public static void shutdownIfInitialized() {
+        if (instance == null) return;
+        instance.shutdown();
+        instance = null;
+    }
+
     private DefenseManager() {
-        this.plugin = VillagerPro.getInstance();
-        this.costHandler = new CostHandler();
-        this.random = new Random();
-        this.activeGuards = new java.util.concurrent.CopyOnWriteArrayList<>();
-        this.activeShelters = new HashMap<>();
-        this.shelterOriginalLocations = new HashMap<>();
-        
-        // 启动定时任务
+        plugin = VillagerPro.getInstance();
+        costHandler = new CostHandler();
+        guardIdKey = new NamespacedKey(plugin, "defense_guard_id");
+        guardVillageKey = new NamespacedKey(plugin, "defense_guard_village");
+        guardExpiryKey = new NamespacedKey(plugin, "defense_guard_expires_at");
+        shelterVillageKey = new NamespacedKey(plugin, "defense_shelter_village");
+        shelterLocationKey = new NamespacedKey(plugin, "defense_shelter_origin");
+        deleteExpiredGuardReservations();
+        restoreLoadedEntities();
         startDefenseTasks();
     }
-    
-    /**
-     * 召唤守卫
-     */
+
     public boolean summonGuard(Player player, Village village) {
         if (village == null || !village.getOwnerUUID().equals(player.getUniqueId())) {
             player.sendMessage("§c你不能为其他村庄召唤守卫");
             return false;
         }
-        // 检查功能是否启用
-        if (!plugin.getConfig().getBoolean("features.defense", true) || 
-            !plugin.getConfig().getBoolean("defense.enabled", true)) {
+        if (!isFeatureEnabled()) {
             player.sendMessage("§c防御系统已禁用");
             return false;
         }
-        
-        // 检查村庄等级要求
         int levelRequirement = plugin.getConfig().getInt("defense.guard.level_requirement", 3);
         if (village.getLevel() < levelRequirement) {
             player.sendMessage("§c需要村庄等级 " + levelRequirement + " 才能召唤守卫");
             return false;
         }
-        
         Location summonLocation = getVillageCenter(village);
         if (summonLocation == null || summonLocation.getWorld() == null) {
             player.sendMessage("§c无法确定村庄中心位置");
             return false;
         }
 
-        // 检查召唤成本
-        List<CostEntry> parsedCosts = parseDefenseCosts("defense.guard.cost");
-        if (!costHandler.canAfford(player, parsedCosts)) {
+        int maximum = Math.max(0, plugin.getConfig().getInt("defense.guard.max_active_per_village", 1));
+        if (maximum == 0) {
+            player.sendMessage("§c当前配置不允许召唤守卫");
+            return false;
+        }
+        long expiresAt = System.currentTimeMillis() + getGuardDuration() * 60_000L;
+        String guardId = UUID.randomUUID().toString();
+        if (!reserveGuardSlot(village.getId(), guardId, expiresAt, maximum)) {
+            player.sendMessage("§c该村庄的临时守卫已达到上限");
+            return false;
+        }
+
+        List<CostEntry> costs = parseDefenseCosts("defense.guard.cost");
+        if (!costHandler.canAfford(player, costs)) {
+            releaseGuardReservation(guardId);
             player.sendMessage("§c资源不足，无法召唤守卫");
             return false;
         }
-        if (!costHandler.deduct(player, parsedCosts)) {
+        if (!costHandler.deduct(player, costs)) {
+            releaseGuardReservation(guardId);
             player.sendMessage("§c扣除资源失败，请重试");
             return false;
         }
-        
-        // 生成铁傀儡守卫
-        IronGolem guard;
+
         try {
-            guard = summonLocation.getWorld().spawn(summonLocation, IronGolem.class);
-        } catch (RuntimeException e) {
-            boolean refunded = CostHandler.refund(player, parsedCosts);
-            plugin.getLogger().warning("守卫生成失败: " + e.getMessage());
+            IronGolem guard = summonLocation.getWorld().spawn(summonLocation, IronGolem.class);
+            tagGuard(guard, guardId, village.getId(), expiresAt);
+            setupGuardProperties(guard, village);
+            trackGuard(guard, village, guardId, expiresAt);
+        } catch (RuntimeException exception) {
+            releaseGuardReservation(guardId);
+            boolean refunded = CostHandler.refund(player, costs);
+            plugin.getLogger().warning("守卫生成失败: " + exception.getMessage());
             player.sendMessage(refunded ? "§c守卫生成失败，费用已退还"
                     : "§c守卫生成失败且费用未完整退还，请联系管理员");
             return false;
         }
-        
-        // 设置守卫属性
-        setupGuardProperties(guard, village);
-        
-        // 添加到活跃守卫列表
-        ActiveGuard activeGuard = new ActiveGuard(guard, village, System.currentTimeMillis());
-        activeGuards.add(activeGuard);
-        
-        // 设置自动清理任务
-        scheduleGuardCleanup(activeGuard);
-        
+
         player.sendMessage("§a守卫召唤成功！");
         player.sendMessage("§7守卫将保护村庄 " + getGuardDuration() + " 分钟");
-        
         return true;
     }
-    
-    /**
-     * 设置守卫属性
-     */
+
     private void setupGuardProperties(IronGolem guard, Village village) {
-        // 设置守卫名字
         guard.setCustomName("§b村庄守卫 - " + village.getName());
         guard.setCustomNameVisible(true);
-        
-        // 让守卫更强
-        guard.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MAX_HEALTH).setBaseValue(100);
-        guard.setHealth(100);
-        
-        // 守卫攻击加成
-        guard.getAttribute(org.bukkit.attribute.Attribute.GENERIC_ATTACK_DAMAGE).setBaseValue(15);
-        
-        // 守卫移动速度加成
-        guard.getAttribute(org.bukkit.attribute.Attribute.GENERIC_MOVEMENT_SPEED).setBaseValue(0.35);
-        
-        // 设置无敌（防止被误杀）
-        guard.setInvulnerable(true);
-        
-        // 守卫不能被推动
+        setAttribute(guard, Attribute.GENERIC_MAX_HEALTH,
+                Math.max(1.0, plugin.getConfig().getDouble("defense.guard.max_health", 100.0)));
+        guard.setHealth(guard.getAttribute(Attribute.GENERIC_MAX_HEALTH).getValue());
+        setAttribute(guard, Attribute.GENERIC_ATTACK_DAMAGE,
+                Math.max(0.0, plugin.getConfig().getDouble("defense.guard.attack_damage", 15.0)));
+        setAttribute(guard, Attribute.GENERIC_MOVEMENT_SPEED,
+                Math.max(0.0, plugin.getConfig().getDouble("defense.guard.movement_speed", 0.35)));
+        guard.setInvulnerable(plugin.getConfig().getBoolean("defense.guard.invulnerable", true));
         guard.setCollidable(false);
     }
-    
-    /**
-     * 触发自动避难所
-     */
+
+    private void setAttribute(IronGolem guard, Attribute attribute, double value) {
+        AttributeInstance instance = guard.getAttribute(attribute);
+        if (instance != null) instance.setBaseValue(value);
+    }
+
     public void triggerAutoShelter(Village village) {
-        if (!plugin.getConfig().getBoolean("defense.shelter.auto_shelter.enabled", true)) {
-            return;
-        }
-        
-        int triggerTime = plugin.getConfig().getInt("defense.shelter.auto_shelter.trigger_world_time", 13000);
+        if (!plugin.getConfig().getBoolean("defense.shelter.auto_shelter.enabled", true)) return;
         long worldTime = getVillageWorldTime(village);
-        
-        if (worldTime >= triggerTime && worldTime < (triggerTime + 200)) { // 避免重复触发
+        int triggerTime = plugin.getConfig().getInt("defense.shelter.auto_shelter.trigger_world_time", 13000);
+        if (GameplayMath.isShelterTime(worldTime, triggerTime)) {
             activateShelter(village);
-        } else if (worldTime >= 0 && worldTime < 1000) { // 天亮后解除避难
+        } else {
             deactivateShelter(village);
         }
     }
-    
-    /**
-     * 激活避难所
-     */
+
     private void activateShelter(Village village) {
-        if (activeShelters.getOrDefault(village.getId(), false)) {
-            return; // 已在避难状态，避免重复传送
-        }
-        
+        if (activeShelters.getOrDefault(village.getId(), false)) return;
         Location center = getVillageCenter(village);
         if (center == null || center.getWorld() == null) return;
-        
-        Location shelterLocation = findSafeShelterLocation(center);
-        Map<UUID, Location> originalLocations = new HashMap<>();
-        
-        List<VillagerData> villagers = VillagerManager.getVillagers(village.getId());
-        for (VillagerData villager : villagers) {
-            org.bukkit.entity.Villager entity = villager.getEntity();
-            if (entity == null || !entity.isValid()) continue;
-            
-            Location originalLocation = entity.getLocation().clone();
-            originalLocations.put(entity.getUniqueId(), originalLocation);
-            
-            entity.teleport(shelterLocation);
-            entity.setInvulnerable(true);
+        Location shelter = findSafeShelterLocation(center);
+        Map<UUID, Location> originals = new HashMap<>();
+        for (VillagerData data : VillagerManager.getVillagers(village.getId())) {
+            Villager villager = data.getEntity();
+            if (villager == null || !villager.isValid()) continue;
+            Location original = villager.getLocation().clone();
+            if (!villager.teleport(shelter)) continue;
+            originals.put(villager.getUniqueId(), original);
+            tagShelteredVillager(villager, village.getId(), original);
+            villager.setInvulnerable(true);
         }
-        
         activeShelters.put(village.getId(), true);
-        shelterOriginalLocations.put(village.getId(), originalLocations);
-        
-        // 通知玩家
-        for (Player player : center.getWorld().getPlayers()) {
-            if (player.getLocation().distance(center) <= 50) {
-                player.sendMessage("§e夜晚来临，村民们已进入避难所");
-            }
-        }
+        shelterOriginalLocations.put(village.getId(), originals);
+        notifyNearby(center, "§e夜晚来临，村民们已进入避难所");
     }
-    
-    /**
-     * 关闭避难所（白天调用）
-     */
+
     private void deactivateShelter(Village village) {
-        if (!activeShelters.getOrDefault(village.getId(), false)) {
-            return;
+        if (!activeShelters.getOrDefault(village.getId(), false)) return;
+        Map<UUID, Location> originals = shelterOriginalLocations.remove(village.getId());
+        for (VillagerData data : VillagerManager.getVillagers(village.getId())) {
+            Villager villager = data.getEntity();
+            if (villager == null || !villager.isValid()) continue;
+            releaseShelterState(villager, originals == null ? null : originals.get(villager.getUniqueId()));
         }
-        
+        activeShelters.remove(village.getId());
         Location center = getVillageCenter(village);
-        Map<UUID, Location> originalLocations = shelterOriginalLocations.get(village.getId());
-        
-        List<VillagerData> villagers = VillagerManager.getVillagers(village.getId());
-        for (VillagerData villager : villagers) {
-            org.bukkit.entity.Villager entity = villager.getEntity();
-            if (entity == null || !entity.isValid()) continue;
-            
-            Location originalLocation = originalLocations != null ? originalLocations.get(entity.getUniqueId()) : null;
-            if (originalLocation != null && originalLocation.getWorld() != null) {
-                entity.teleport(originalLocation);
-            }
-            entity.setInvulnerable(false);
-        }
-        
-        activeShelters.put(village.getId(), false);
-        if (originalLocations != null) {
-            originalLocations.clear();
-        }
-        
-        if (center != null && center.getWorld() != null) {
-            for (Player player : center.getWorld().getPlayers()) {
-                if (player.getLocation().distance(center) <= 50) {
-                    player.sendMessage("§a天亮了，村民们离开避难所");
-                }
-            }
+        if (center != null) notifyNearby(center, "§a天亮了，村民们离开避难所");
+    }
+
+    private void notifyNearby(Location center, String message) {
+        if (center.getWorld() == null) return;
+        for (Player player : center.getWorld().getPlayers()) {
+            if (player.getLocation().distance(center) <= 50) player.sendMessage(message);
         }
     }
-    
-    /**
-     * 寻找安全的避难所位置
-     */
+
     private Location findSafeShelterLocation(Location center) {
-        Location shelter = center.clone();
-        // 优先在村庄中心上方寻找空气位置
-        for (int y = 3; y >= -3; y--) {
-            Location candidate = center.clone().add(0, y, 0);
-            if (candidate.getBlock().getType() == Material.AIR && 
-                candidate.clone().add(0, 1, 0).getBlock().getType() == Material.AIR) {
+        for (int y = 4; y >= -3; y--) {
+            Location candidate = center.clone().add(0.5, y, 0.5);
+            if (candidate.getBlock().getType().isAir()
+                    && candidate.clone().add(0, 1, 0).getBlock().getType().isAir()
+                    && candidate.clone().add(0, -1, 0).getBlock().getType().isSolid()) {
                 return candidate;
             }
         }
-        //  fallback：返回中心上方 3 格，即使可能有方块也会因无敌而不受伤害
-        return center.clone().add(0, 3, 0);
+        return center.getWorld().getHighestBlockAt(center).getLocation().add(0.5, 1, 0.5);
     }
-    
-    /**
-     * 启动防御任务
-     */
+
     private void startDefenseTasks() {
-        // 每分钟检查一次夜晚时间
         new BukkitRunnable() {
             @Override
             public void run() {
-                if (!isFeatureEnabled()) {
-                    return;
-                }
-                
-                // 检查所有村庄的夜晚时间
-                for (Village village : VillageManager.getAllVillages()) {
-                    triggerAutoShelter(village);
-                }
+                if (!isFeatureEnabled()) return;
+                for (Village village : VillageManager.getAllVillages()) triggerAutoShelter(village);
             }
-        }.runTaskTimer(plugin, 1200L, 1200L); // 每分钟检查一次
-        
-        // 每30秒检查一次守卫状态
+        }.runTaskTimer(plugin, 1200L, 1200L);
         new BukkitRunnable() {
             @Override
             public void run() {
                 checkGuardStatus();
             }
-        }.runTaskTimer(plugin, 600L, 600L); // 每30秒检查一次
+        }.runTaskTimer(plugin, 200L, 200L);
     }
-    
-    /**
-     * 检查守卫状态
-     */
+
     private void checkGuardStatus() {
-        activeGuards.removeIf(guard -> {
-            if (guard.getGuard().isDead() || !guard.getGuard().isValid()) {
-                // 守卫已死亡或失效
-                guard.getGuard().remove();
-                return true;
+        long now = System.currentTimeMillis();
+        for (ActiveGuard activeGuard : activeGuards) {
+            if (activeGuard.guard().isDead() || !activeGuard.guard().isValid()
+                    || activeGuard.expiresAt() <= now) {
+                removeGuard(activeGuard);
             }
-            
-            // 检查守卫是否超时
-            long elapsed = System.currentTimeMillis() - guard.getSpawnTime();
-            if (elapsed > getGuardDuration() * 60 * 1000) {
-                // 守卫超时，自动消失
-                guard.getGuard().remove();
-                return true;
+        }
+        deleteExpiredGuardReservations();
+    }
+
+    public void restoreEntityState(Entity entity) {
+        if (entity instanceof IronGolem guard) restoreGuard(guard);
+        if (entity instanceof Villager villager) restoreShelteredVillager(villager);
+    }
+
+    private void restoreLoadedEntities() {
+        for (org.bukkit.World world : Bukkit.getWorlds()) {
+            for (Entity entity : world.getEntities()) restoreEntityState(entity);
+        }
+    }
+
+    private void restoreGuard(IronGolem guard) {
+        PersistentDataContainer data = guard.getPersistentDataContainer();
+        String guardId = data.get(guardIdKey, PersistentDataType.STRING);
+        Integer villageId = data.get(guardVillageKey, PersistentDataType.INTEGER);
+        Long expiresAt = data.get(guardExpiryKey, PersistentDataType.LONG);
+        if (guardId == null || villageId == null || expiresAt == null) return;
+        Village village = VillageManager.getVillageById(villageId);
+        if (expiresAt <= System.currentTimeMillis() || village == null
+                || !hasGuardReservation(guardId, villageId, expiresAt)) {
+            guard.remove();
+            releaseGuardReservation(guardId);
+            return;
+        }
+        setupGuardProperties(guard, village);
+        trackGuard(guard, village, guardId, expiresAt);
+    }
+
+    private void restoreShelteredVillager(Villager villager) {
+        PersistentDataContainer data = villager.getPersistentDataContainer();
+        if (!data.has(shelterVillageKey, PersistentDataType.INTEGER)) return;
+        Location original = deserializeLocation(data.get(shelterLocationKey, PersistentDataType.STRING));
+        releaseShelterState(villager, original);
+    }
+
+    private void tagGuard(IronGolem guard, String guardId, int villageId, long expiresAt) {
+        PersistentDataContainer data = guard.getPersistentDataContainer();
+        data.set(guardIdKey, PersistentDataType.STRING, guardId);
+        data.set(guardVillageKey, PersistentDataType.INTEGER, villageId);
+        data.set(guardExpiryKey, PersistentDataType.LONG, expiresAt);
+    }
+
+    private void tagShelteredVillager(Villager villager, int villageId, Location original) {
+        PersistentDataContainer data = villager.getPersistentDataContainer();
+        data.set(shelterVillageKey, PersistentDataType.INTEGER, villageId);
+        data.set(shelterLocationKey, PersistentDataType.STRING, serializeLocation(original));
+    }
+
+    private void releaseShelterState(Villager villager, Location original) {
+        if (original != null && original.getWorld() != null) villager.teleport(original);
+        villager.setInvulnerable(false);
+        PersistentDataContainer data = villager.getPersistentDataContainer();
+        data.remove(shelterVillageKey);
+        data.remove(shelterLocationKey);
+    }
+
+    private String serializeLocation(Location location) {
+        return location.getWorld().getUID() + ";" + location.getX() + ";" + location.getY() + ";"
+                + location.getZ() + ";" + location.getYaw() + ";" + location.getPitch();
+    }
+
+    private Location deserializeLocation(String encoded) {
+        if (encoded == null) return null;
+        String[] parts = encoded.split(";", -1);
+        if (parts.length != 6) return null;
+        try {
+            org.bukkit.World world = Bukkit.getWorld(UUID.fromString(parts[0]));
+            if (world == null) return null;
+            return new Location(world, Double.parseDouble(parts[1]), Double.parseDouble(parts[2]),
+                    Double.parseDouble(parts[3]), Float.parseFloat(parts[4]), Float.parseFloat(parts[5]));
+        } catch (IllegalArgumentException exception) {
+            return null;
+        }
+    }
+
+    private void trackGuard(IronGolem guard, Village village, String guardId, long expiresAt) {
+        activeGuards.removeIf(active -> active.guard().getUniqueId().equals(guard.getUniqueId()));
+        activeGuards.add(new ActiveGuard(guard, village, guardId, expiresAt));
+    }
+
+    private void removeGuard(ActiveGuard activeGuard) {
+        activeGuards.remove(activeGuard);
+        if (activeGuard.guard().isValid()) activeGuard.guard().remove();
+        releaseGuardReservation(activeGuard.guardId());
+    }
+
+    private boolean reserveGuardSlot(int villageId, String guardId, long expiresAt, int maximum) {
+        try (Connection connection = DatabaseManager.getConnection()) {
+            boolean autoCommit = connection.getAutoCommit();
+            connection.setAutoCommit(false);
+            try (PreparedStatement removeExpired = connection.prepareStatement(
+                    "DELETE FROM active_guards WHERE expires_at_ms <= ?")) {
+                removeExpired.setLong(1, System.currentTimeMillis());
+                removeExpired.executeUpdate();
             }
-            
+            int count;
+            try (PreparedStatement query = connection.prepareStatement(
+                    "SELECT COUNT(*) FROM active_guards WHERE village_id = ? AND expires_at_ms > ?")) {
+                query.setInt(1, villageId);
+                query.setLong(2, System.currentTimeMillis());
+                try (ResultSet rows = query.executeQuery()) {
+                    rows.next();
+                    count = rows.getInt(1);
+                }
+            }
+            if (count >= maximum) {
+                connection.rollback();
+                return false;
+            }
+            try (PreparedStatement insert = connection.prepareStatement(
+                    "INSERT INTO active_guards (guard_id, village_id, expires_at_ms) VALUES (?, ?, ?)")) {
+                insert.setString(1, guardId);
+                insert.setInt(2, villageId);
+                insert.setLong(3, expiresAt);
+                insert.executeUpdate();
+            }
+            connection.commit();
+            return true;
+        } catch (SQLException exception) {
+            plugin.getLogger().warning("无法预约守卫名额: " + exception.getMessage());
             return false;
-        });
+        }
     }
-    
-    /**
-     * 安排守卫清理任务
-     */
-    private void scheduleGuardCleanup(ActiveGuard activeGuard) {
-        new BukkitRunnable() {
-            @Override
-            public void run() {
-                if (activeGuard.getGuard().isDead() || !activeGuard.getGuard().isValid()) {
-                    activeGuards.remove(activeGuard);
-                    this.cancel();
-                }
-                
-                // 检查超时
-                long elapsed = System.currentTimeMillis() - activeGuard.getSpawnTime();
-                if (elapsed > getGuardDuration() * 60 * 1000) {
-                    activeGuard.getGuard().remove();
-                    activeGuards.remove(activeGuard);
-                    this.cancel();
-                }
+
+    private boolean hasGuardReservation(String guardId, int villageId, long expiresAt) {
+        try (Connection connection = DatabaseManager.getConnection();
+             PreparedStatement query = connection.prepareStatement(
+                     "SELECT 1 FROM active_guards WHERE guard_id = ? AND village_id = ? "
+                             + "AND expires_at_ms = ? AND expires_at_ms > ?")) {
+            query.setString(1, guardId);
+            query.setInt(2, villageId);
+            query.setLong(3, expiresAt);
+            query.setLong(4, System.currentTimeMillis());
+            try (ResultSet rows = query.executeQuery()) {
+                return rows.next();
             }
-        }.runTaskTimer(plugin, 200L, 200L); // 每10秒检查一次
+        } catch (SQLException exception) {
+            plugin.getLogger().warning("无法恢复守卫状态: " + exception.getMessage());
+            return false;
+        }
     }
-    
-    /**
-     * 获取村庄世界时间
-     */
+
+    private void releaseGuardReservation(String guardId) {
+        try (Connection connection = DatabaseManager.getConnection();
+             PreparedStatement delete = connection.prepareStatement(
+                     "DELETE FROM active_guards WHERE guard_id = ?")) {
+            delete.setString(1, guardId);
+            delete.executeUpdate();
+        } catch (SQLException exception) {
+            plugin.getLogger().warning("无法释放守卫名额: " + exception.getMessage());
+        }
+    }
+
+    private void deleteExpiredGuardReservations() {
+        try (Connection connection = DatabaseManager.getConnection();
+             PreparedStatement delete = connection.prepareStatement(
+                     "DELETE FROM active_guards WHERE expires_at_ms <= ?")) {
+            delete.setLong(1, System.currentTimeMillis());
+            delete.executeUpdate();
+        } catch (SQLException exception) {
+            plugin.getLogger().warning("无法清理过期守卫记录: " + exception.getMessage());
+        }
+    }
+
+    private int countActiveGuardReservations(int villageId) {
+        try (Connection connection = DatabaseManager.getConnection();
+             PreparedStatement query = connection.prepareStatement(
+                     "SELECT COUNT(*) FROM active_guards WHERE village_id = ? AND expires_at_ms > ?")) {
+            query.setInt(1, villageId);
+            query.setLong(2, System.currentTimeMillis());
+            try (ResultSet rows = query.executeQuery()) {
+                return rows.next() ? rows.getInt(1) : 0;
+            }
+        } catch (SQLException exception) {
+            plugin.getLogger().warning("无法读取守卫数量: " + exception.getMessage());
+            long tracked = activeGuards.stream()
+                    .filter(guard -> guard.village().getId() == villageId)
+                    .count();
+            return tracked > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) tracked;
+        }
+    }
+
+    private void shutdown() {
+        for (ActiveGuard activeGuard : new ArrayList<>(activeGuards)) removeGuard(activeGuard);
+        for (org.bukkit.World world : Bukkit.getWorlds()) {
+            for (Entity entity : world.getEntities()) {
+                if (entity instanceof Villager villager) restoreShelteredVillager(villager);
+            }
+        }
+        try (Connection connection = DatabaseManager.getConnection();
+             PreparedStatement delete = connection.prepareStatement("DELETE FROM active_guards")) {
+            delete.executeUpdate();
+        } catch (SQLException exception) {
+            plugin.getLogger().warning("无法清理守卫记录: " + exception.getMessage());
+        }
+    }
+
     private long getVillageWorldTime(Village village) {
         Location center = getVillageCenter(village);
-        if (center != null) {
-            return center.getWorld().getTime();
-        }
-        return 0;
+        return center == null || center.getWorld() == null ? 0 : center.getWorld().getTime();
     }
-    
-    /**
-     * 获取村庄中心位置
-     */
+
     private Location getVillageCenter(Village village) {
         return village.getLocation();
     }
-    
-    /**
-     * 获取守卫持续时间
-     */
+
     private int getGuardDuration() {
-        return plugin.getConfig().getInt("defense.guard.duration_minutes", 5);
+        return Math.max(1, plugin.getConfig().getInt("defense.guard.duration_minutes", 5));
     }
-    
-    /**
-     * 检查功能是否启用
-     */
+
     private boolean isFeatureEnabled() {
-        return plugin.getConfig().getBoolean("features.defense", true) && 
-               plugin.getConfig().getBoolean("defense.enabled", true);
+        return plugin.getConfig().getBoolean("features.defense", true)
+                && plugin.getConfig().getBoolean("defense.enabled", true);
     }
-    
-    /**
-     * 获取活跃守卫列表
-     */
+
     public List<ActiveGuard> getActiveGuards() {
-        return new java.util.ArrayList<>(activeGuards);
+        return new ArrayList<>(activeGuards);
     }
-    
-    /**
-     * 获取村庄的活跃守卫数量
-     */
+
     public int getActiveGuardCount(Village village) {
-        return (int) activeGuards.stream()
-                .filter(guard -> guard.getVillage().getId() == village.getId())
-                .count();
+        return countActiveGuardReservations(village.getId());
     }
-    
-    /**
-     * 活跃守卫数据类
-     */
-    public static class ActiveGuard {
-        private final IronGolem guard;
-        private final Village village;
-        private final long spawnTime;
-        
-        public ActiveGuard(IronGolem guard, Village village, long spawnTime) {
-            this.guard = guard;
-            this.village = village;
-            this.spawnTime = spawnTime;
-        }
-        
-        public IronGolem getGuard() {
-            return guard;
-        }
-        
-        public Village getVillage() {
-            return village;
-        }
-        
-        public long getSpawnTime() {
-            return spawnTime;
-        }
+
+    public record ActiveGuard(IronGolem guard, Village village, String guardId, long expiresAt) {
     }
-    
-    /**
-     * 解析防御成本配置（兼容 YAML 对象列表与旧版字符串列表）
-     */
+
     private List<CostEntry> parseDefenseCosts(String path) {
         List<CostEntry> costs = new ArrayList<>();
         List<?> costList = plugin.getConfig().getList(path);
-        if (costList == null) {
-            return costs;
-        }
-
-        for (Object obj : costList) {
-            if (obj instanceof Map) {
-                @SuppressWarnings("unchecked")
-                Map<String, Object> costMap = (Map<String, Object>) obj;
-                String type = String.valueOf(costMap.get("type"));
-                Object amountObj = costMap.get("amount");
-                double amount = 0;
-                if (amountObj instanceof Number) {
-                    amount = ((Number) amountObj).doubleValue();
-                } else if (amountObj != null) {
+        if (costList == null) return costs;
+        for (Object entry : costList) {
+            if (entry instanceof Map<?, ?> map) {
+                String type = String.valueOf(map.get("type"));
+                Object amountObject = map.get("amount");
+                double amount = amountObject instanceof Number number ? number.doubleValue() : 0;
+                if (!(amountObject instanceof Number) && amountObject != null) {
                     try {
-                        amount = Double.parseDouble(String.valueOf(amountObj));
+                        amount = Double.parseDouble(String.valueOf(amountObject));
                     } catch (NumberFormatException ignored) {
+                        // Invalid costs are ignored in the same way as the legacy parser.
                     }
                 }
                 if ("itemsadder".equalsIgnoreCase(type) || "item".equalsIgnoreCase(type)) {
-                    String item = costMap.get("item") != null ? String.valueOf(costMap.get("item")) : "";
-                    costs.add(new CostEntry(type, amount, item));
+                    costs.add(new CostEntry(type, amount,
+                            map.get("item") == null ? "" : String.valueOf(map.get("item"))));
                 } else {
                     costs.add(new CostEntry(type, amount));
                 }
-            } else if (obj instanceof String) {
-                costs.addAll(parseLegacyCostString((String) obj));
+            } else if (entry instanceof String legacy) {
+                costs.addAll(parseLegacyCostString(legacy));
             }
         }
-
         return costs;
     }
 
-    /**
-     * 解析旧版字符串成本格式
-     */
     private List<CostEntry> parseLegacyCostString(String costString) {
         List<CostEntry> costs = new ArrayList<>();
+        String[] parts = costString.split(":");
+        if (parts.length < 2) return costs;
         try {
-            String[] parts = costString.split(":");
-            if (parts.length >= 2) {
-                String type = parts[0].toLowerCase();
-                double amount = Double.parseDouble(parts[1]);
-
-                if (("itemsadder".equals(type) || "item".equals(type)) && parts.length >= 3) {
-                    String item = parts[2];
-                    costs.add(new CostEntry(type, amount, item));
-                } else {
-                    costs.add(new CostEntry(type, amount));
-                }
+            double amount = Double.parseDouble(parts[1]);
+            if (("itemsadder".equalsIgnoreCase(parts[0]) || "item".equalsIgnoreCase(parts[0]))
+                    && parts.length >= 3) {
+                costs.add(new CostEntry(parts[0], amount, parts[2]));
+            } else {
+                costs.add(new CostEntry(parts[0], amount));
             }
-        } catch (NumberFormatException | ArrayIndexOutOfBoundsException e) {
-            plugin.getLogger().warning("无效的成本格式: " + costString);
-        }
-        return costs;
-    }
-
-    /**
-     * 解析成本字符串列表为CostEntry列表（保留旧方法名以兼容）
-     * 格式: "vault:100", "playerpoints:50", "itemsadder:10:item_id"
-     */
-    private List<CostEntry> parseCosts(List<String> costStrings) {
-        List<CostEntry> costs = new ArrayList<>();
-        if (costStrings == null) {
-            return costs;
-        }
-        for (String costString : costStrings) {
-            costs.addAll(parseLegacyCostString(costString));
+        } catch (NumberFormatException exception) {
+            plugin.getLogger().warning("无效的防御成本格式: " + costString);
         }
         return costs;
     }

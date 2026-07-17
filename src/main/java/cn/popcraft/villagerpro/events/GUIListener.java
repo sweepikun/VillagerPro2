@@ -22,6 +22,8 @@ import org.bukkit.entity.Villager;
 import org.bukkit.event.EventHandler;
 import org.bukkit.event.Listener;
 import org.bukkit.event.inventory.InventoryClickEvent;
+import org.bukkit.event.inventory.InventoryDragEvent;
+import org.bukkit.event.inventory.InventoryCloseEvent;
 import org.bukkit.event.player.PlayerInteractEntityEvent;
 import org.bukkit.inventory.Inventory;
 import org.bukkit.inventory.ItemStack;
@@ -36,6 +38,24 @@ import java.util.Map;
 import org.bukkit.event.player.PlayerQuitEvent;
 
 public class GUIListener implements Listener {
+
+    @EventHandler
+    public void onInventoryDrag(InventoryDragEvent event) {
+        String title = event.getView().getTitle();
+        if (!title.startsWith(GUIManager.getGUIPrefix())) return;
+        int topSize = event.getView().getTopInventory().getSize();
+        if (event.getRawSlots().stream().anyMatch(slot -> slot < topSize)) {
+            event.setCancelled(true);
+        }
+    }
+
+    @EventHandler
+    public void onInventoryClose(InventoryCloseEvent event) {
+        if (event.getPlayer() instanceof Player player
+                && CostDisplayGUI.isConfirmationTitle(event.getView().getTitle())) {
+            CostDisplayGUI.clearCallbacks(player);
+        }
+    }
     
     @EventHandler
     public void onInventoryClick(InventoryClickEvent event) {
@@ -99,7 +119,7 @@ public class GUIListener implements Listener {
                 handleVisitorGUI(player, clickedItem, slot);
             } else if (inventoryTitle.contains("村庄联盟") || inventoryTitle.contains("创建联盟") || inventoryTitle.contains("联盟列表") || inventoryTitle.contains("联盟信息")) {
                 SimpleAllianceGUIManager.handleAllianceGUIClick(player, clickedItem);
-            } else if (inventoryTitle.equals(guiPrefix + "消耗物品确认")) {
+            } else if (CostDisplayGUI.isConfirmationTitle(inventoryTitle)) {
                 handleCostConfirmationGUI(player, clickedItem);
             }
         }
@@ -109,6 +129,7 @@ public class GUIListener implements Listener {
     public void onPlayerQuit(PlayerQuitEvent event) {
         // 清理玩家数据
         GUIManager.removeCurrentVillagerId(event.getPlayer());
+        CostDisplayGUI.clearCallbacks(event.getPlayer());
     }
     
     @EventHandler
@@ -272,24 +293,9 @@ public class GUIListener implements Listener {
                 Village ownedVillage = VillageManager.getVillage(player.getUniqueId());
                 if (villager != null && ownedVillage != null
                         && villager.getVillageId() == ownedVillage.getId()) {
-                    String currentMode = villager.getFollowMode();
-                    String newMode;
-                    switch (currentMode) {
-                        case "FREE":
-                            newMode = "FOLLOW";
-                            break;
-                        case "FOLLOW":
-                            newMode = "STAY";
-                            break;
-                        case "STAY":
-                            newMode = "FREE";
-                            break;
-                        default:
-                            newMode = "FREE";
-                    }
-                    villager.setFollowMode(newMode);
-                    if (VillagerManager.updateVillager(villager)) {
-                        player.sendMessage("§a跟随模式已切换为: " + newMode);
+                    if (cn.popcraft.villagerpro.managers.FollowManager
+                            .toggleFollowMode(villager)) {
+                        player.sendMessage("§a跟随模式已切换为: " + villager.getFollowMode());
                         // 刷新GUI
                         GUIManager.openVillagerInfoGUI(player, villagerId);
                     } else {
@@ -795,8 +801,7 @@ public class GUIListener implements Listener {
         
         // 设置村民自定义名称以标识已被招募
         String professionName = VillagerManager.getProfessionDisplayName(profession);
-        targetVillager.setCustomName("§a" + professionName + " §7(ID: " + targetVillager.getEntityId() + ")");
-        targetVillager.setCustomNameVisible(true);
+        VillagerManager.refreshEntityDisplayName(villagerData);
 
         cn.popcraft.villagerpro.managers.VillagerAbilityManager.applyVillageHealthBoost(village);
         

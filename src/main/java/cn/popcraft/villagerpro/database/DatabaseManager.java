@@ -214,10 +214,11 @@ public class DatabaseManager {
                     "villager_id INTEGER PRIMARY KEY, " +
                     "loyalty INTEGER NOT NULL DEFAULT 50, " +
                     "mood INTEGER NOT NULL DEFAULT 70, " +
-                    "last_interaction DATETIME, " +
+                    "last_interaction BIGINT NOT NULL DEFAULT 0, " +
                     "interaction_count INTEGER DEFAULT 0, " +
                     "FOREIGN KEY (villager_id) REFERENCES villagers(id) ON DELETE CASCADE" +
                     ")");
+            migratePersonalityInteractionColumn(statement, targetDialect);
             
             // 创建事件记录表
             statement.execute("CREATE TABLE IF NOT EXISTS events (" +
@@ -368,6 +369,17 @@ public class DatabaseManager {
         } catch (SQLException e) {
             rethrowUnlessDuplicateColumn(e, targetDialect);
         }
+    }
+
+    static void migratePersonalityInteractionColumn(SchemaStatement statement,
+                                                     DatabaseDialect targetDialect) throws SQLException {
+        if (targetDialect != DatabaseDialect.MYSQL) return;
+        statement.execute("ALTER TABLE villager_personality "
+                + "MODIFY COLUMN last_interaction BIGINT NOT NULL DEFAULT 0");
+        // Pre-MySQL-support builds stored this value in a DATETIME column. DATETIME-to-integer
+        // coercion is not an epoch timestamp and would otherwise create an effectively endless cooldown.
+        statement.execute("UPDATE villager_personality SET last_interaction = 0 "
+                + "WHERE last_interaction < 0 OR last_interaction > 4102444800000");
     }
 
     private static void rethrowUnlessDuplicateColumn(SQLException exception,

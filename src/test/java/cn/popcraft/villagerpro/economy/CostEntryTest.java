@@ -42,6 +42,11 @@ class CostEntryTest {
     void rejectsInvalidAmounts() {
         assertNull(CostEntry.normalize(List.of(new CostEntry("vault", Double.NaN))));
         assertNull(CostEntry.normalize(List.of(new CostEntry("vault", 0))));
+        assertNull(CostEntry.normalize(List.of(new CostEntry("playerpoints", 0.5))));
+        assertNull(CostEntry.normalize(List.of(new CostEntry("item", 1.5, "DIAMOND"))));
+        assertNull(CostEntry.normalize(List.of(
+                new CostEntry("vault", Double.MAX_VALUE),
+                new CostEntry("vault", Double.MAX_VALUE))));
     }
 
     @Test

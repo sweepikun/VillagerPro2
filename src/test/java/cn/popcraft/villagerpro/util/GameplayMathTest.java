@@ -3,6 +3,7 @@ package cn.popcraft.villagerpro.util;
 import org.junit.jupiter.api.Test;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 class GameplayMathTest {
@@ -23,6 +24,15 @@ class GameplayMathTest {
     }
 
     @Test
+    void extremeProductionBonusesSaturateInsteadOfOverflowing() {
+        assertEquals(Integer.MAX_VALUE, GameplayMath.productionAmount(
+                Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE));
+        assertEquals(Integer.MAX_VALUE, GameplayMath.applyExpectedMultiplier(
+                Integer.MAX_VALUE, Double.MAX_VALUE, 0));
+        assertEquals(1, GameplayMath.applyExpectedMultiplier(10, Double.NaN, 0));
+    }
+
+    @Test
     void farmingBoostChangesActualOutput() {
         assertEquals(10, GameplayMath.applyPercentageBoost(10, 0.2, 0));
         assertEquals(12, GameplayMath.applyPercentageBoost(10, 0.2, 1));
@@ -34,6 +44,8 @@ class GameplayMathTest {
     void workstationPercentageAcceptsWholeOrDecimalConfiguration() {
         assertEquals(0.2, GameplayMath.configuredPercentage(20));
         assertEquals(0.2, GameplayMath.configuredPercentage(0.2));
+        assertEquals(1.0, GameplayMath.configuredPercentage(250));
+        assertEquals(0.0, GameplayMath.configuredPercentage(Double.POSITIVE_INFINITY));
         assertEquals(4, GameplayMath.applyMultiplier(3, 1.2));
     }
 
@@ -110,6 +122,18 @@ class GameplayMathTest {
     }
 
     @Test
+    void personalityRewardsMeaningfullyIncreaseProduction() {
+        assertEquals(1.0, GameplayMath.personalityProductionMultiplier(
+                79, 79, 80, .05, 80, .05));
+        assertEquals(1.05, GameplayMath.personalityProductionMultiplier(
+                80, 79, 80, .05, 80, .05));
+        assertEquals(1.10, GameplayMath.personalityProductionMultiplier(
+                100, 100, 80, .05, 80, .05));
+        assertEquals(1.0, GameplayMath.personalityProductionMultiplier(
+                100, 100, 80, -.5, 80, Double.NaN));
+    }
+
+    @Test
     void workstationLevelsAndExpectedRoundingAffectOutput() {
         assertEquals(1.0, GameplayMath.levelMultiplier(1, .15));
         assertEquals(1.3, GameplayMath.levelMultiplier(3, .15));
@@ -158,5 +182,30 @@ class GameplayMathTest {
         assertEquals(0.8, GameplayMath.chainEfficiency(0.8, 0, 1), 0.0001);
         assertEquals(0.64, GameplayMath.chainEfficiency(0.8, 0, 0.8), 0.0001);
         assertEquals(1.0, GameplayMath.chainEfficiency(0.8, 0.3, 1.1), 0.0001);
+    }
+
+    @Test
+    void configuredDefenseReductionIsClampedAndApplied() {
+        assertEquals(5.0, GameplayMath.damageAfterReduction(10, .50));
+        assertEquals(0.0, GameplayMath.damageAfterReduction(10, 2.0));
+        assertEquals(10.0, GameplayMath.damageAfterReduction(10, -.5));
+        assertEquals(0.0, GameplayMath.damageAfterReduction(Double.NaN, .5));
+    }
+
+    @Test
+    void probabilitiesAreAlwaysKeptInThePlayableRange() {
+        assertEquals(0.0, GameplayMath.clampProbability(-.1));
+        assertEquals(.35, GameplayMath.clampProbability(.35));
+        assertEquals(1.0, GameplayMath.clampProbability(1.2));
+        assertEquals(0.0, GameplayMath.clampProbability(Double.NaN));
+        assertEquals(0.0, GameplayMath.clampProbability(Double.POSITIVE_INFINITY));
+    }
+
+    @Test
+    void automaticShelterRemainsActiveForTheWholeNight() {
+        assertFalse(GameplayMath.isShelterTime(12_999, 13_000));
+        assertTrue(GameplayMath.isShelterTime(13_000, 13_000));
+        assertTrue(GameplayMath.isShelterTime(22_000, 13_000));
+        assertFalse(GameplayMath.isShelterTime(24_000, 13_000));
     }
 }

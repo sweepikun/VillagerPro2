@@ -2,6 +2,7 @@ package cn.popcraft.villagerpro.managers;
 
 import cn.popcraft.villagerpro.VillagerPro;
 import cn.popcraft.villagerpro.database.DatabaseManager;
+import cn.popcraft.villagerpro.database.OperationTransactions;
 import cn.popcraft.villagerpro.models.Village;
 import cn.popcraft.villagerpro.models.VillagerData;
 import cn.popcraft.villagerpro.models.VillagerNeeds;
@@ -13,10 +14,14 @@ import java.sql.Connection;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 public final class NeedsManager {
     private static BukkitTask needsTask;
+    private static final Map<Integer, VillagerNeeds> NEEDS_CACHE = new ConcurrentHashMap<>();
 
     private NeedsManager() {
     }
@@ -35,16 +40,24 @@ public final class NeedsManager {
 
     public static void shutdown() {
         if (needsTask != null) needsTask.cancel();
+        needsTask = null;
+        NEEDS_CACHE.clear();
     }
 
     public static VillagerNeeds getNeeds(int villagerId) {
+        VillagerNeeds cached = NEEDS_CACHE.get(villagerId);
+        if (cached != null) return cached;
         String sql = "SELECT villager_id, hunger, comfort, health, last_updated_ms, last_consumed " +
                 "FROM villager_needs WHERE villager_id = ?";
         try (Connection connection = DatabaseManager.getConnection();
              PreparedStatement statement = connection.prepareStatement(sql)) {
             statement.setInt(1, villagerId);
             ResultSet resultSet = statement.executeQuery();
-            if (resultSet.next()) return readNeeds(resultSet);
+            if (resultSet.next()) {
+                VillagerNeeds needs = readNeeds(resultSet);
+                NEEDS_CACHE.put(villagerId, needs);
+                return needs;
+            }
         } catch (SQLException e) {
             logFailure("读取村民需求", e);
         }
@@ -52,6 +65,10 @@ public final class NeedsManager {
                 villagerId, 100, 100, 100, System.currentTimeMillis(), "");
         saveNeeds(initial);
         return initial;
+    }
+
+    public static void removeNeeds(int villagerId) {
+        NEEDS_CACHE.remove(villagerId);
     }
 
     public static double getProductionMultiplier(VillagerData villager) {
@@ -104,49 +121,36 @@ public final class NeedsManager {
                 .getDouble("needs.auto_consume_threshold", 65)
                 + PolicyManager.getConsumeThresholdBonus(village.getId());
         threshold = Math.max(0, Math.min(100, threshold));
-        String consumed = "";
-        if (hunger < threshold) {
-            String item = consumeFirstAvailable(village.getId(),
-                    getSupplyItems("needs.supplies.food.items", "BREAD", "CARROT", "POTATO"));
-            if (item != null) {
-                hunger = clamp(hunger + VillagerPro.getInstance().getConfig()
-                        .getDouble("needs.supplies.food.restore", 25)
-                        * PolicyManager.getSupplyRestoreMultiplier(village.getId()));
-                consumed = item;
+        List<String> foodItems = getSupplyItems("needs.supplies.food.items", "BREAD", "CARROT", "POTATO");
+        List<String> comfortItems = getSupplyItems("needs.supplies.comfort.items", "WHITE_WOOL", "WHITE_CARPET");
+        List<String> healthItems = getSupplyItems("needs.supplies.health.items", "POTION");
+        Map<String, Integer> reserves = supplyReserves(village.getId(), foodItems, comfortItems, healthItems);
+        double supplyMultiplier = PolicyManager.getSupplyRestoreMultiplier(village.getId());
+        OperationTransactions.NeedSupply food = new OperationTransactions.NeedSupply(foodItems,
+                VillagerPro.getInstance().getConfig().getDouble("needs.supplies.food.restore", 25)
+                        * supplyMultiplier);
+        OperationTransactions.NeedSupply comfortSupply = new OperationTransactions.NeedSupply(comfortItems,
+                VillagerPro.getInstance().getConfig().getDouble("needs.supplies.comfort.restore", 20)
+                        * supplyMultiplier);
+        OperationTransactions.NeedSupply healthSupply = new OperationTransactions.NeedSupply(healthItems,
+                VillagerPro.getInstance().getConfig().getDouble("needs.supplies.health.restore", 30)
+                        * BuildingManager.getHealthSupplyMultiplier(village.getId()) * supplyMultiplier);
+        try (Connection connection = DatabaseManager.getConnection()) {
+            OperationTransactions.NeedsSettlement settlement = OperationTransactions.settleVillagerNeeds(
+                    connection, village.getId(), villager.getId(), current.getLastUpdatedMs(), now,
+                    hunger, comfort, health, current.getLastConsumed(), threshold, food, comfortSupply,
+                    healthSupply, reserves, PolicyManager.getFrozenStockFraction(village.getId()));
+            if (!settlement.saved()) {
+                VillagerPro.getInstance().getLogger().warning("需求结算状态已变化，库存与需求均未更新: villager="
+                        + villager.getId());
+            } else {
+                NEEDS_CACHE.put(villager.getId(), new VillagerNeeds(villager.getId(),
+                        settlement.hunger(), settlement.comfort(), settlement.health(), now,
+                        settlement.consumed().isBlank() ? current.getLastConsumed() : settlement.consumed()));
             }
+        } catch (SQLException exception) {
+            logFailure("结算村民需求", exception);
         }
-        if (comfort < threshold) {
-            String item = consumeFirstAvailable(village.getId(),
-                    getSupplyItems("needs.supplies.comfort.items", "WHITE_WOOL", "WHITE_CARPET"));
-            if (item != null) {
-                comfort = clamp(comfort + VillagerPro.getInstance().getConfig()
-                        .getDouble("needs.supplies.comfort.restore", 20)
-                        * PolicyManager.getSupplyRestoreMultiplier(village.getId()));
-                consumed = appendConsumed(consumed, item);
-            }
-        }
-        if (health < threshold) {
-            String item = consumeFirstAvailable(village.getId(),
-                    getSupplyItems("needs.supplies.health.items", "POTION"));
-            if (item != null) {
-                health = clamp(health + VillagerPro.getInstance().getConfig()
-                        .getDouble("needs.supplies.health.restore", 30)
-                        * BuildingManager.getHealthSupplyMultiplier(village.getId())
-                        * PolicyManager.getSupplyRestoreMultiplier(village.getId()));
-                consumed = appendConsumed(consumed, item);
-            }
-        }
-        saveNeeds(new VillagerNeeds(villager.getId(), hunger, comfort, health, now,
-                consumed.isBlank() ? current.getLastConsumed() : consumed));
-    }
-
-    private static String consumeFirstAvailable(int villageId, List<String> itemTypes) {
-        for (String itemType : itemTypes) {
-            if (WarehouseManager.removeExtractableItem(villageId, itemType, 1)) {
-                return itemType;
-            }
-        }
-        return null;
     }
 
     private static List<String> getSupplyItems(String path, String... defaults) {
@@ -167,7 +171,9 @@ public final class NeedsManager {
             statement.setDouble(4, needs.getHealth());
             statement.setLong(5, needs.getLastUpdatedMs());
             statement.setString(6, needs.getLastConsumed());
-            return statement.executeUpdate() > 0;
+            boolean saved = statement.executeUpdate() > 0;
+            if (saved) NEEDS_CACHE.put(needs.getVillagerId(), needs);
+            return saved;
         } catch (SQLException e) {
             logFailure("保存村民需求", e);
             return false;
@@ -185,8 +191,17 @@ public final class NeedsManager {
         return Math.max(0, Math.min(100, value));
     }
 
-    private static String appendConsumed(String current, String item) {
-        return current == null || current.isBlank() ? item : current + ", " + item;
+
+    @SafeVarargs
+    private static Map<String, Integer> supplyReserves(int villageId, List<String>... supplies) {
+        Map<String, Integer> reserves = new HashMap<>();
+        for (List<String> supply : supplies) {
+            for (String item : supply) {
+                reserves.putIfAbsent(item, WarehouseRuleManager.getItemRule(villageId, item)
+                        .getReserveAmount());
+            }
+        }
+        return reserves;
     }
 
     public static boolean isEnabled() {

@@ -114,6 +114,11 @@ public class DecorationManager {
      * 放置装饰
      */
     public boolean placeDecoration(Player player, String decorationType, Block block) {
+        if (!plugin.getConfig().getBoolean("features.decorations", true)
+                || !plugin.getConfig().getBoolean("decorations.enabled", true)) {
+            player.sendMessage("§c装饰系统已禁用");
+            return false;
+        }
         Village village = findNearbyVillage(block.getLocation());
         if (village == null) {
             player.sendMessage("§c只能在村庄附近放置装饰");
@@ -140,13 +145,14 @@ public class DecorationManager {
         // 增加繁荣度
         int prosperityBoost = decorationConfig.getInt("prosperity_boost", 0);
         if (prosperityBoost > 0) {
-            village.addProsperity(prosperityBoost);
-            if (!VillageManager.updateVillage(village)) {
-                village.addProsperity(-prosperityBoost);
+            Integer resultingProsperity = adjustProsperity(village.getId(), prosperityBoost);
+            if (resultingProsperity == null) {
                 deleteDecorationAt(block.getLocation());
                 player.sendMessage("§c保存村庄繁荣度失败");
                 return false;
             }
+            village.setProsperity(resultingProsperity);
+            CacheManager.cacheVillage(village.getOwnerUUID(), village);
             player.sendMessage("§a村庄繁荣度 +" + prosperityBoost);
         }
 
@@ -198,15 +204,24 @@ public class DecorationManager {
      * 触发装饰效果
      */
     private void triggerDecorationEffects(Village village, String decorationType, Block block) {
+        ConfigurationSection configuration = plugin.getConfig().getConfigurationSection(
+                "decorations.items." + decorationType);
+        if (configuration == null) return;
         switch (decorationType) {
             case "street_light":
-                enableStreetLightEffect(village, block);
+                if (configuration.getBoolean("world_interaction", false)) {
+                    enableStreetLightEffect(village, block);
+                }
                 break;
             case "flower_bed":
-                enableFlowerBedEffect(village, block);
+                if (configuration.getBoolean("villager_interaction", false)) {
+                    enableFlowerBedEffect(village, block);
+                }
                 break;
             case "bench":
-                enableBenchEffect(village, block);
+                if (configuration.getBoolean("villager_sit", false)) {
+                    enableBenchEffect(village, block);
+                }
                 break;
         }
     }
@@ -228,13 +243,14 @@ public class DecorationManager {
      * 启用花坛效果：提升附近村民的情绪
      */
     private void enableFlowerBedEffect(Village village, Block block) {
+        if (!PersonalityManager.isEnabled()) return;
         // 给村庄中心附近的所有村民增加心情
         Location center = block.getLocation();
         for (VillagerData villager : VillagerManager.getVillagers(village.getId())) {
             org.bukkit.entity.Villager entity = villager.getEntity();
             if (entity == null || !entity.isValid()) continue;
             if (entity.getWorld().equals(center.getWorld()) && entity.getLocation().distance(center) <= 10) {
-                PersonalityManager.getInstance().interactWithVillager(null, villager, "praise");
+                PersonalityManager.getInstance().applyMoodBonus(villager, 5);
             }
         }
     }
@@ -282,14 +298,15 @@ public class DecorationManager {
             return false;
         }
         if (prosperityBoost > 0) {
-            village.addProsperity(-prosperityBoost);
-            if (!VillageManager.updateVillage(village)) {
-                village.addProsperity(prosperityBoost);
+            Integer resultingProsperity = adjustProsperity(village.getId(), -prosperityBoost);
+            if (resultingProsperity == null) {
                 saveDecorationToDatabase(village.getId(), decoration.getDecorationType(),
                         Material.valueOf(decoration.getItemType()), block.getLocation());
                 player.sendMessage("§c更新村庄繁荣度失败");
                 return false;
             }
+            village.setProsperity(resultingProsperity);
+            CacheManager.cacheVillage(village.getOwnerUUID(), village);
         }
 
         block.setType(Material.AIR);
@@ -359,6 +376,22 @@ public class DecorationManager {
         }
         
         return null;
+    }
+
+    public boolean isManagedDecoration(Block block) {
+        return block != null && findDecorationAt(block.getLocation()) != null;
+    }
+
+    private Integer adjustProsperity(int villageId, int delta) {
+        try (Connection connection = DatabaseManager.getConnection()) {
+            cn.popcraft.villagerpro.database.OperationTransactions.ProsperityAdjustment adjustment =
+                    cn.popcraft.villagerpro.database.OperationTransactions.adjustVillageProsperity(
+                            connection, villageId, delta);
+            return adjustment.adjusted() ? adjustment.prosperity() : null;
+        } catch (SQLException exception) {
+            plugin.getLogger().warning("结算装饰繁荣度失败: " + exception.getMessage());
+            return null;
+        }
     }
     
     /**
@@ -457,17 +490,31 @@ public class DecorationManager {
             }
         }
 
+        int updatedProsperity;
         try (Connection conn = DatabaseManager.getConnection()) {
             conn.setAutoCommit(false);
             try (PreparedStatement delete = conn.prepareStatement(
                     "DELETE FROM decorations WHERE village_id = ?");
                  PreparedStatement update = conn.prepareStatement(
-                    "UPDATE villages SET prosperity = MAX(0, prosperity - ?) WHERE id = ?")) {
+                    "UPDATE villages SET prosperity = CASE WHEN prosperity >= ? "
+                            + "THEN prosperity - ? ELSE 0 END WHERE id = ?")) {
                 delete.setInt(1, villageId);
                 delete.executeUpdate();
-                update.setInt(1, prosperityReduction);
-                update.setInt(2, villageId);
-                update.executeUpdate();
+                int safeReduction = Math.max(0, prosperityReduction);
+                update.setInt(1, safeReduction);
+                update.setInt(2, safeReduction);
+                update.setInt(3, villageId);
+                if (update.executeUpdate() != 1) {
+                    throw new SQLException("村庄不存在，无法结算装饰繁荣度");
+                }
+                try (PreparedStatement query = conn.prepareStatement(
+                        "SELECT prosperity FROM villages WHERE id = ?")) {
+                    query.setInt(1, villageId);
+                    try (ResultSet rows = query.executeQuery()) {
+                        if (!rows.next()) throw new SQLException("无法读取更新后的村庄繁荣度");
+                        updatedProsperity = rows.getInt(1);
+                    }
+                }
                 conn.commit();
             } catch (SQLException e) {
                 conn.rollback();
@@ -482,7 +529,7 @@ public class DecorationManager {
             }
             Village village = VillageManager.getVillageById(villageId);
             if (village != null) {
-                village.setProsperity(Math.max(0, village.getProsperity() - prosperityReduction));
+                village.setProsperity(updatedProsperity);
                 CacheManager.cacheVillage(village.getOwnerUUID(), village);
             }
             return true;

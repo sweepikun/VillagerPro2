@@ -2,6 +2,7 @@ package cn.popcraft.villagerpro.managers;
 
 import cn.popcraft.villagerpro.VillagerPro;
 import cn.popcraft.villagerpro.database.DatabaseManager;
+import cn.popcraft.villagerpro.database.OperationTransactions;
 import cn.popcraft.villagerpro.models.Village;
 import cn.popcraft.villagerpro.models.WarehouseItem;
 import cn.popcraft.villagerpro.util.GameplayMath;
@@ -103,22 +104,10 @@ public class WarehouseManager {
             return 0;
         }
 
-        int storedAmount = GameplayMath.storableAmount(
-                amount, village.getWarehouseCapacity(), getCurrentStorage(villageId));
-        if (storedAmount <= 0) {
-            return 0;
-        }
-
-        try (Connection connection = DatabaseManager.getConnection();
-             PreparedStatement statement = connection.prepareStatement(DatabaseManager.additiveUpsert(
-                     "INSERT INTO warehouse (village_id, item_type, amount) VALUES (?, ?, ?)",
-                     "village_id, item_type", "amount"))) {
-            
-            statement.setInt(1, villageId);
-            statement.setString(2, itemType);
-            statement.setInt(3, storedAmount);
-            
-            return statement.executeUpdate() > 0 ? storedAmount : 0;
+        try (Connection connection = DatabaseManager.getConnection()) {
+            return OperationTransactions.storeWarehouseStock(connection,
+                    DatabaseManager.getDialect(), villageId, itemType, amount,
+                    village.getWarehouseCapacity());
         } catch (SQLException e) {
             VillagerPro.getInstance().getLogger().warning("数据库操作失败：" + e.getMessage());
             return 0;

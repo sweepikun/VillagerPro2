@@ -24,6 +24,8 @@ class OperationsSchemaTest {
                     "FOREIGN KEY (village_id) REFERENCES villages(id) ON DELETE CASCADE)");
             OperationsSchema.createTables(statement);
             statement.execute("INSERT INTO villages(id) VALUES (1)");
+            statement.execute("INSERT INTO active_guards (guard_id, village_id, expires_at_ms) " +
+                    "VALUES ('guard-1', 1, 3600001)");
             statement.execute("INSERT INTO visitors(id, village_id) VALUES (9, 1)");
             statement.execute("INSERT INTO visitor_shop_sales " +
                     "(visitor_id, product_id, player_uuid, purchase_count) " +
@@ -92,6 +94,8 @@ class OperationsSchemaTest {
                     "SELECT return_amount FROM caravan_routes WHERE village_id = 1"));
             assertEquals(2, queryInt(statement,
                     "SELECT purchase_count FROM visitor_shop_sales WHERE visitor_id = 9"));
+            assertEquals(1, queryInt(statement,
+                    "SELECT COUNT(*) FROM active_guards WHERE village_id = 1"));
             assertThrows(SQLException.class, () -> statement.execute(
                     "INSERT INTO village_orders " +
                             "(village_id, day_key, order_slot, item_type, amount_required) " +
@@ -133,6 +137,8 @@ class OperationsSchemaTest {
                     "SELECT COUNT(*) FROM caravan_routes WHERE village_id = 1"));
             assertEquals(0, queryInt(statement,
                     "SELECT COUNT(*) FROM visitor_shop_sales WHERE visitor_id = 9"));
+            assertEquals(0, queryInt(statement,
+                    "SELECT COUNT(*) FROM active_guards WHERE village_id = 1"));
         }
     }
 
